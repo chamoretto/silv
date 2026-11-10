@@ -38,9 +38,9 @@ Prefer dependencies with static linking option.
 ## Git
 
 Use git worktrees and branches to isolate work: try an approach out in a branch, keep the main line stable.
-In commits use Conventional Commits (conventionalcommits.org). To preserve style, use the
-`git-cliff` (git-cliff.org) CLI and its configs.
-Follow semver 2.0 for versions (semver.org).
+In commits use Conventional commits (`docs/conventional-commits.md`). To preserve style, use `git-cliff`(git-cliff.org)
+CLI and configs (it is installed)
+Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 ## Self-improvement
 
