@@ -1,0 +1,54 @@
+[package]
+name = "silv"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88.0"
+authors = ["Georgiy Chamor <chamor@felent.tech>"]
+description = "Simple interactive log viewer: Kibana-like JSON Lines viewing in a terminal, TUI and grep-like modes"
+license = "MIT"
+keywords = ["logs", "tui", "jsonlines", "viewer", "kibana"]
+categories = ["command-line-utilities", "development-tools::debugging"]
+
+[lib]
+name = "silv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "silv"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock", "alloc"] }
+clap = { version = "=4.6.7", features = ["derive", "wrap_help", "env"] }
+crossterm = "=0.29.0"
+globset = "=0.4.21"
+is-terminal = "=0.4.17"
+memmap2 = "=0.9.12"
+miette = { version = "=7.6.0", features = ["fancy"] }
+ratatui = { version = "=0.30.2", default-features = false, features = [
+    "crossterm",
+    "layout-cache",
+    "macros",
+    "underline-color",
+] }
+rayon = "=1.12.0"
+regex = "=1.13.1"
+serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] }
+thiserror = "=2.0.21"
+unicode-width = "=0.2.3"
+
+[dev-dependencies]
+serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] }
+
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3
+debug = false
+incremental = false
+strip = true
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
