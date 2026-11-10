@@ -1488,6 +1488,8 @@ impl AppState {
     fn handle_picker_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
         match code {
             KeyCode::Esc => self.close_picker(),
+            // Space toggles like Enter; it must be matched before the catch-all char arm.
+            KeyCode::Char(' ') => self.picker_toggle(),
             KeyCode::Char(ch) => {
                 if let Some(picker) = self.picker.as_mut() {
                     picker.input.insert(ch);
@@ -2048,6 +2050,19 @@ mod tests {
         }
         state.picker_filter();
         assert_eq!(state.picker.as_ref().map(|p| p.matches.len()), Some(1));
+    }
+
+    #[test]
+    fn picker_space_toggles_like_enter() {
+        let mut state = state_of(&["{\"alpha\":1,\"beta\":2}"]);
+        state.open_picker();
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        let picker = state.picker.as_ref().expect("picker stays open");
+        assert!(picker.input.text().is_empty());
+        assert_eq!(picker.matches.len(), 2);
+        assert!(picker.fields[picker.matches[0]].selected);
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(!state.picker.as_ref().expect("picker").fields.iter().any(|f| f.selected));
     }
 
     #[test]
