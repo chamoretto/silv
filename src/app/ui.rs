@@ -124,10 +124,10 @@ fn cursor_spans(text: &str, cursor: usize, focused: bool) -> Vec<Span<'static>> 
 fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let mut x = 0u16;
     let mut spans: Vec<Span<'static>> = vec![Span::styled(
-        "filter: ",
+        "filters: ",
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
-    x += 8;
+    x += 9;
     state.chip_cells.clear();
     for (index, predicate) in state.filters.iter().enumerate() {
         let label = predicate.to_string();
@@ -150,7 +150,7 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
     }
     if state.filters.is_empty() {
         spans.push(Span::styled(
-            "F to add a filter (field=pattern, field!=pattern, field^, field!^)",
+            "F to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))",
             Style::default().fg(ratatui::style::Color::DarkGray),
         ));
     }
@@ -160,18 +160,14 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
 fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     let focused = state.focus == Focus::FilterInput;
     let text = state.filter_input.text();
+    if !focused && text.is_empty() {
+        return;
+    }
     let mut spans = vec![Span::styled(
-        "add: ",
+        "filter: ",
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
-    if !focused && text.is_empty() {
-        spans.push(Span::styled(
-            "[F] to add a filter (field=pattern, field^, not a and (b or c))",
-            Style::default().fg(ratatui::style::Color::DarkGray),
-        ));
-    } else {
-        spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
-    }
+    spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
     if focused {
         spans.push(Span::styled("  Enter applies, Esc closes", Style::default().fg(ratatui::style::Color::DarkGray)));
     }
