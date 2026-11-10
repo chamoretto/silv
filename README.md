@@ -5,6 +5,10 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 
+## Preview
+
+![interactive table view with a level!=DEBUG filter chip and the sort header focused](docs/images/ui-interactive-sample-jsonl.png)
+
 ## Little disclaimer
 
 SILV is an experimental software, written by LLM-agent and me, written for me for my needs, for training in LLM-assisted
