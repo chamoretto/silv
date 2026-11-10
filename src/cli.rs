@@ -157,7 +157,7 @@ Examples:
 
 const KEYS: &str = "\
 Interactive keys:
-  /            focus search bar         F            focus filter input
+  /            focus search bar         F            filter wizard: field, operator, value
   Tab / S-Tab  focus header cell        Enter        open record / apply input / sort focused column
   s            sort focused column      c            field picker (toggle columns)
   j k, PgUp..  move row                 g G          first / last row

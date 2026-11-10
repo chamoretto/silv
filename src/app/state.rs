@@ -68,7 +68,72 @@ pub struct Areas {
     pub filter: Rect,
     pub rows: Rect,
     pub status: Rect,
+    pub dropdown: Rect,
 }
+
+/// Step of the guided filter builder.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WizardPhase {
+    Field,
+    Operator,
+    Pattern,
+}
+
+/// A field name offered by the autocomplete dropdown.
+#[derive(Clone, Debug)]
+pub struct FieldCandidate {
+    pub path: FieldPath,
+    pub label: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct FilterWizard {
+    pub phase: WizardPhase,
+    pub field: Option<FieldPath>,
+    pub op: Option<LeafOp>,
+    pub matches: Vec<FieldCandidate>,
+    pub cursor: usize,
+}
+
+/// One operator option of the builder's second step.
+pub struct WizardOp {
+    pub op: LeafOp,
+    pub label: &'static str,
+    pub shortcut: char,
+}
+
+pub const WIZARD_OPS: [WizardOp; 6] = [
+    WizardOp {
+        op: LeafOp::Eq,
+        label: "=   equals (glob pattern)",
+        shortcut: '=',
+    },
+    WizardOp {
+        op: LeafOp::Neq,
+        label: "!=  not equals (glob pattern)",
+        shortcut: '!',
+    },
+    WizardOp {
+        op: LeafOp::Contains,
+        label: "~   contains text",
+        shortcut: '~',
+    },
+    WizardOp {
+        op: LeafOp::NotContains,
+        label: "!~  not contains text",
+        shortcut: 'n',
+    },
+    WizardOp {
+        op: LeafOp::Exists,
+        label: "^   field exists",
+        shortcut: 'e',
+    },
+    WizardOp {
+        op: LeafOp::NotExists,
+        label: "!^  field missing",
+        shortcut: 'E',
+    },
+];
 
 /// One field shown in the record detail.
 #[derive(Clone, Debug)]
@@ -159,6 +224,7 @@ pub struct AppState {
     pub rows_scroll: usize,
     pub detail: Option<DetailState>,
     pub picker: Option<PickerState>,
+    pub wizard: Option<FilterWizard>,
     pub help: bool,
     pub message: Option<String>,
     pub status: String,
@@ -197,6 +263,7 @@ impl AppState {
             rows_scroll: 0,
             detail: None,
             picker: None,
+            wizard: None,
             help: false,
             message: None,
             status: String::new(),
@@ -337,6 +404,200 @@ impl AppState {
                 self.message = Some(format!("filter: {error}"));
             },
         }
+    }
+
+    /// Opens the guided filter builder on the field step.
+    pub fn open_filter_wizard(&mut self) {
+        self.filter_input.clear();
+        let matches = self.field_candidates("");
+        self.wizard = Some(FilterWizard {
+            phase: WizardPhase::Field,
+            field: None,
+            op: None,
+            matches,
+            cursor: 0,
+        });
+        self.focus = Focus::FilterInput;
+        self.dirty = true;
+    }
+
+    pub fn close_filter_wizard(&mut self) {
+        self.wizard = None;
+        self.filter_input.clear();
+        self.dirty = true;
+    }
+
+    fn field_candidates(&self, needle: &str) -> Vec<FieldCandidate> {
+        let needle = needle.to_lowercase();
+        self.store
+            .fields_by_frequency()
+            .into_iter()
+            .filter(|info| needle.is_empty() || info.label.to_lowercase().contains(&needle))
+            .map(|info| FieldCandidate {
+                path: info.path.clone(),
+                label: info.label.clone(),
+            })
+            .collect()
+    }
+
+    fn wizard_recompute(&mut self) {
+        let in_field_phase = self
+            .wizard
+            .as_ref()
+            .is_some_and(|wizard| wizard.phase == WizardPhase::Field);
+        if !in_field_phase {
+            return;
+        }
+        let needle = self.filter_input.text();
+        let matches = self.field_candidates(&needle);
+        if let Some(wizard) = self.wizard.as_mut() {
+            wizard.matches = matches;
+            wizard.cursor = 0;
+        }
+        self.dirty = true;
+    }
+
+    pub fn wizard_move(&mut self, delta: isize) {
+        let Some(wizard) = self.wizard.as_mut() else {
+            return;
+        };
+        let len = match wizard.phase {
+            WizardPhase::Field => wizard.matches.len(),
+            WizardPhase::Operator => WIZARD_OPS.len(),
+            WizardPhase::Pattern => 0,
+        };
+        if len == 0 {
+            return;
+        }
+        let current = isize::try_from(wizard.cursor).unwrap_or(0);
+        let len = isize::try_from(len).unwrap_or(isize::MAX);
+        wizard.cursor = usize::try_from((current + delta).clamp(0, len - 1)).unwrap_or(0);
+        self.dirty = true;
+    }
+
+    pub fn wizard_pick_cursor(&mut self) {
+        self.wizard_enter();
+    }
+
+    /// Enter on the builder: advances field -> operator -> value, or commits.
+    pub fn wizard_enter(&mut self) {
+        let Some(wizard) = self.wizard.clone() else {
+            return;
+        };
+        match wizard.phase {
+            WizardPhase::Field => self.wizard_pick_field(wizard),
+            WizardPhase::Operator => self.wizard_pick_operator(wizard),
+            WizardPhase::Pattern => self.wizard_commit(wizard),
+        }
+    }
+
+    fn wizard_pick_field(&mut self, wizard: FilterWizard) {
+        let chosen = wizard
+            .matches
+            .get(wizard.cursor)
+            .map(|candidate| candidate.path.clone())
+            .or_else(|| {
+                let text = self.filter_input.text();
+                FieldPath::parse(text.trim()).ok()
+            });
+        let Some(path) = chosen else {
+            // Not a plain field name: try the text as a full DSL expression.
+            self.submit_filter_input();
+            if self.filter_input.text().trim().is_empty() {
+                self.wizard = None;
+            }
+            self.dirty = true;
+            return;
+        };
+        self.filter_input.set(&path.to_string());
+        if let Some(wizard) = self.wizard.as_mut() {
+            wizard.field = Some(path);
+            wizard.phase = WizardPhase::Operator;
+            wizard.cursor = 0;
+        }
+        self.dirty = true;
+    }
+
+    fn wizard_pick_operator(&mut self, wizard: FilterWizard) {
+        let Some(op) = WIZARD_OPS.get(wizard.cursor).map(|option| option.op) else {
+            return;
+        };
+        let Some(field) = wizard.field.clone() else {
+            self.close_filter_wizard();
+            return;
+        };
+        if !op.takes_pattern() {
+            self.close_filter_wizard();
+            self.add_filter_from_op(field, op, None);
+            self.focus = Focus::Rows;
+            self.dirty = true;
+            return;
+        }
+        self.filter_input.clear();
+        if let Some(wizard) = self.wizard.as_mut() {
+            wizard.op = Some(op);
+            wizard.phase = WizardPhase::Pattern;
+        }
+        self.dirty = true;
+    }
+
+    fn wizard_commit(&mut self, wizard: FilterWizard) {
+        let (Some(field), Some(op)) = (wizard.field.clone(), wizard.op) else {
+            self.close_filter_wizard();
+            return;
+        };
+        let text = self.filter_input.text();
+        let value = if text.is_empty() { "*".to_owned() } else { text };
+        self.close_filter_wizard();
+        self.add_filter_from_op(field, op, Some(value));
+        self.focus = Focus::Rows;
+        self.dirty = true;
+    }
+
+    /// Esc / Backspace at the start of a step: back to the previous step.
+    pub fn wizard_back(&mut self) {
+        let Some(wizard) = self.wizard.clone() else {
+            return;
+        };
+        match wizard.phase {
+            WizardPhase::Pattern => {
+                if let Some(field) = wizard.field.as_ref() {
+                    self.filter_input.set(&field.to_string());
+                }
+                if let Some(wizard) = self.wizard.as_mut() {
+                    wizard.phase = WizardPhase::Operator;
+                }
+            },
+            WizardPhase::Operator => {
+                if let Some(field) = wizard.field.as_ref() {
+                    self.filter_input.set(&field.to_string());
+                }
+                self.wizard_recompute();
+                if let Some(wizard) = self.wizard.as_mut() {
+                    wizard.phase = WizardPhase::Field;
+                    wizard.op = None;
+                }
+            },
+            WizardPhase::Field => {
+                self.close_filter_wizard();
+                self.focus = Focus::FilterChips;
+            },
+        }
+        self.dirty = true;
+    }
+
+    /// Typed operator shortcut on the operator step (e.g. `=`, `e`).
+    fn wizard_op_shortcut(&mut self, ch: char) {
+        let Some(index) = WIZARD_OPS.iter().position(|option| option.shortcut == ch) else {
+            return;
+        };
+        if let Some(wizard) = self.wizard.as_mut() {
+            wizard.cursor = index;
+        }
+        let Some(wizard) = self.wizard.clone() else {
+            return;
+        };
+        self.wizard_pick_operator(wizard);
     }
 
     pub fn remove_filter(&mut self, index: usize) {
@@ -805,6 +1066,10 @@ impl AppState {
     }
 
     fn handle_filter_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
+        if self.wizard.is_some() {
+            self.handle_wizard_key(code);
+            return;
+        }
         match code {
             KeyCode::Char(ch) => self.filter_input.insert(ch),
             KeyCode::Backspace => {
@@ -834,6 +1099,56 @@ impl AppState {
         }
     }
 
+    /// Keys on the guided builder: field autocomplete, operator list, value.
+    fn handle_wizard_key(&mut self, code: KeyCode) {
+        let phase = self.wizard.as_ref().map(|wizard| wizard.phase);
+        match (phase, code) {
+            (Some(WizardPhase::Field), KeyCode::Char(ch)) => {
+                self.filter_input.insert(ch);
+                self.wizard_recompute();
+            },
+            (Some(WizardPhase::Field), KeyCode::Backspace) => {
+                if self.filter_input.is_empty() {
+                    self.wizard_back();
+                } else {
+                    self.filter_input.backspace();
+                    self.wizard_recompute();
+                }
+            },
+            (Some(WizardPhase::Field), KeyCode::Left) => self.filter_input.left(),
+            (Some(WizardPhase::Field), KeyCode::Right) => self.filter_input.right(),
+            (Some(WizardPhase::Field), KeyCode::Home) => self.filter_input.home(),
+            (Some(WizardPhase::Field), KeyCode::End) => self.filter_input.end(),
+            (Some(WizardPhase::Field), KeyCode::Up) => self.wizard_move(-1),
+            (Some(WizardPhase::Field), KeyCode::Down) => self.wizard_move(1),
+            (Some(WizardPhase::Field), KeyCode::Tab) => self.wizard_move(1),
+            (Some(WizardPhase::Field), KeyCode::BackTab) => self.wizard_move(-1),
+            (Some(WizardPhase::Operator), KeyCode::Char(ch)) => self.wizard_op_shortcut(ch),
+            (Some(WizardPhase::Operator), KeyCode::Up) => self.wizard_move(-1),
+            (Some(WizardPhase::Operator), KeyCode::Down) => self.wizard_move(1),
+            (Some(WizardPhase::Operator), KeyCode::Tab) => self.wizard_move(1),
+            (Some(WizardPhase::Operator), KeyCode::BackTab) => self.wizard_move(-1),
+            (Some(WizardPhase::Operator), KeyCode::Backspace) => self.wizard_back(),
+            (Some(WizardPhase::Pattern), KeyCode::Char(ch)) => self.filter_input.insert(ch),
+            (Some(WizardPhase::Pattern), KeyCode::Backspace) => {
+                if self.filter_input.is_empty() {
+                    self.wizard_back();
+                } else {
+                    self.filter_input.backspace();
+                }
+            },
+            (Some(WizardPhase::Pattern), KeyCode::Left) => self.filter_input.left(),
+            (Some(WizardPhase::Pattern), KeyCode::Right) => self.filter_input.right(),
+            (Some(WizardPhase::Pattern), KeyCode::Home) => self.filter_input.home(),
+            (Some(WizardPhase::Pattern), KeyCode::End) => self.filter_input.end(),
+            (Some(WizardPhase::Pattern), KeyCode::Delete) => self.filter_input.delete(),
+            (Some(_), KeyCode::Enter) => self.wizard_enter(),
+            (Some(_), KeyCode::Esc) => self.wizard_back(),
+            _ => {},
+        }
+        self.dirty = true;
+    }
+
     fn handle_chips_key(&mut self, code: KeyCode) {
         match code {
             KeyCode::Left | KeyCode::Char('h') => self.filter_cursor = self.filter_cursor.saturating_sub(1),
@@ -848,7 +1163,7 @@ impl AppState {
                     self.focus = Focus::FilterInput;
                 }
             },
-            KeyCode::Char('i') | KeyCode::Char('a') => self.focus = Focus::FilterInput,
+            KeyCode::Char('i') | KeyCode::Char('a') => self.open_filter_wizard(),
             KeyCode::Char('x') => self.clear_filters(),
             KeyCode::Esc => self.focus = Focus::Rows,
             KeyCode::Tab => self.cycle_focus(1),
@@ -926,7 +1241,7 @@ impl AppState {
             KeyCode::Tab => self.cycle_focus(1),
             KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Char('/') => self.focus = Focus::Search,
-            KeyCode::Char('F') => self.focus = Focus::FilterInput,
+            KeyCode::Char('F') => self.open_filter_wizard(),
             _ => {},
         }
     }
@@ -939,7 +1254,13 @@ impl AppState {
             KeyCode::Char('k') | KeyCode::Up => self.detail_move(-1),
             KeyCode::PageDown => self.detail_move(isize::try_from(self.page_height()).unwrap_or(1)),
             KeyCode::PageUp => self.detail_move(-isize::try_from(self.page_height()).unwrap_or(1)),
-            KeyCode::Enter => self.detail_open_menu(),
+            KeyCode::Enter => {
+                if self.detail.as_ref().is_some_and(|detail| detail.menu.is_some()) {
+                    self.detail_apply_menu();
+                } else {
+                    self.detail_open_menu();
+                }
+            },
             KeyCode::Char('a') => self.detail_apply_menu_action(MenuAction::ToggleColumn),
             KeyCode::Char('f') => self.detail_apply_menu_action(MenuAction::FilterEq),
             KeyCode::Char('F') => self.detail_apply_menu_action(MenuAction::FilterNeq),
@@ -1036,9 +1357,20 @@ impl AppState {
             self.search_input.move_to(usize::from(column.saturating_sub(2)));
             return;
         }
+        if self.wizard.is_some()
+            && areas.dropdown.height > 2
+            && row > areas.dropdown.y
+            && row < areas.dropdown.y + areas.dropdown.height - 1
+        {
+            let index = usize::from(row - areas.dropdown.y - 1);
+            if let Some(wizard) = self.wizard.as_mut() {
+                wizard.cursor = index;
+            }
+            self.wizard_enter();
+            return;
+        }
         if contains(areas.filter, row) {
-            self.focus = Focus::FilterInput;
-            self.filter_input.move_to(usize::from(column.saturating_sub(2)));
+            self.open_filter_wizard();
             return;
         }
         if contains(areas.chips, row) {
@@ -1211,6 +1543,73 @@ mod tests {
         assert_eq!(state.cursor, 0);
         state.wheel(100);
         assert_eq!(state.cursor, 9);
+    }
+
+    #[test]
+    fn wizard_walks_field_operator_pattern() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        state.handle_key(KeyCode::Char('F'), KeyModifiers::NONE);
+        assert!(state.wizard.is_some());
+        for ch in "lev".chars() {
+            state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        assert!(
+            state
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.matches.iter().any(|c| c.label == "level"))
+        );
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Operator));
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Pattern));
+        for ch in "WARN".chars() {
+            state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.wizard.is_none());
+        assert_eq!(state.filters.len(), 1);
+        assert!(state.filters[0].to_string().contains("level=WARN"));
+        assert_eq!(state.view.len(), 1);
+    }
+
+    #[test]
+    fn wizard_exists_completes_immediately() {
+        let mut state = state_of(&["{\"level\":\"WARN\",\"trace.id\":\"t1\"}"]);
+        state.open_filter_wizard();
+        state.wizard_enter(); // field: first candidate
+        state.wizard_move(4); // Exists
+        state.wizard_enter();
+        assert!(state.wizard.is_none());
+        assert_eq!(state.filters.len(), 1);
+        assert!(state.filters[0].to_string().contains('^'));
+    }
+
+    #[test]
+    fn wizard_back_walks_out_one_phase_at_a_time() {
+        let mut state = state_of(&["{\"level\":\"WARN\"}"]);
+        state.open_filter_wizard();
+        state.wizard_enter();
+        state.wizard_enter();
+        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Pattern));
+        state.wizard_back();
+        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Operator));
+        state.wizard_back();
+        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Field));
+    }
+
+    #[test]
+    fn detail_menu_enter_applies_the_action() {
+        let mut state = state_of(&["{\"level\":\"WARN\",\"trace.id\":\"t1\"}"]);
+        state.open_detail();
+        state.detail_move(1); // focus @level (field list starts with @timestamp)
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // open the action menu
+        assert!(state.detail.as_ref().is_some_and(|d| d.menu == Some(0)));
+        state.detail_move(1); // menu cursor: FilterEq
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // apply
+        assert!(state.detail.as_ref().is_some_and(|d| d.menu.is_none()));
+        assert_eq!(state.filters.len(), 1);
+        assert!(state.filters[0].to_string().contains("level=WARN"));
     }
 
     #[test]

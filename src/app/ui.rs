@@ -8,9 +8,13 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
+use ratatui::widgets::Block;
 use ratatui::widgets::Cell as TuiCell;
 use ratatui::widgets::Clear;
 use ratatui::widgets::HighlightSpacing;
+use ratatui::widgets::List;
+use ratatui::widgets::ListItem;
+use ratatui::widgets::ListState;
 use ratatui::widgets::Row;
 use ratatui::widgets::Table;
 use ratatui::widgets::TableState;
@@ -20,6 +24,8 @@ use crate::app::help;
 use crate::app::picker;
 use crate::app::state::AppState;
 use crate::app::state::Focus;
+use crate::app::state::WIZARD_OPS;
+use crate::app::state::WizardPhase;
 use crate::cli::RenderChoice;
 use crate::render::fields::Column;
 use crate::render::record_render::Cell;
@@ -55,6 +61,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     draw_filter_input(frame, state, rects[2]);
     draw_rows(frame, state, rects[3]);
     draw_status(frame, state, rects[4]);
+    draw_wizard_dropdown(frame, state, area);
 
     if let Some(picker) = state.picker.as_ref() {
         let area = centered(area, 72, 60);
@@ -160,7 +167,12 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
 fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     let focused = state.focus == Focus::FilterInput;
     let text = state.filter_input.text();
-    if !focused && text.is_empty() {
+    let wizard_suffix = state.wizard.as_ref().map(|wizard| match wizard.phase {
+        WizardPhase::Field => "  1/3 field  Up/Down selects, Enter picks, Esc exits",
+        WizardPhase::Operator => "  2/3 operator  Up/Down, Enter, or type = ! ~ n e E",
+        WizardPhase::Pattern => "  3/3 pattern  Enter applies, Backspace goes back",
+    });
+    if !focused && text.is_empty() && wizard_suffix.is_none() {
         return;
     }
     let mut spans = vec![Span::styled(
@@ -168,10 +180,86 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
     spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
-    if focused {
+    if let Some(suffix) = wizard_suffix {
+        spans.push(Span::styled(suffix, Style::default().fg(ratatui::style::Color::DarkGray)));
+    } else if focused {
         spans.push(Span::styled("  Enter applies, Esc closes", Style::default().fg(ratatui::style::Color::DarkGray)));
     }
     frame.render_widget(ratatui::widgets::Paragraph::new(Line::from(spans)), area);
+}
+
+/// Autocomplete list under the filter input while the guided builder is open.
+fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
+    state.areas.dropdown = Rect::default();
+    let (phase, cursor, labels) = match state.wizard.as_ref() {
+        Some(wizard) if wizard.phase == WizardPhase::Field => (
+            wizard.phase,
+            wizard.cursor,
+            wizard
+                .matches
+                .iter()
+                .map(|candidate| candidate.label.clone())
+                .collect::<Vec<_>>(),
+        ),
+        Some(wizard) if wizard.phase == WizardPhase::Operator => (
+            wizard.phase,
+            wizard.cursor,
+            WIZARD_OPS
+                .iter()
+                .map(|option| option.label.to_owned())
+                .collect::<Vec<_>>(),
+        ),
+        _ => return,
+    };
+    if labels.is_empty() {
+        return;
+    }
+    let y = state.areas.filter.y.saturating_add(1);
+    if y >= screen.y.saturating_add(screen.height) {
+        return;
+    }
+    let height = u16::try_from(labels.len().min(12) + 2)
+        .unwrap_or(u16::MAX)
+        .min(screen.y.saturating_add(screen.height) - y);
+    if height < 2 {
+        return;
+    }
+    let rect = Rect {
+        x: screen.x,
+        y,
+        width: screen.width.min(72),
+        height,
+    };
+    state.areas.dropdown = rect;
+    frame.render_widget(Clear, rect);
+    let title = match phase {
+        WizardPhase::Field => " fields (Enter) ",
+        WizardPhase::Operator => " operators (Enter) ",
+        WizardPhase::Pattern => "",
+    };
+    let block = Block::bordered()
+        .title(Line::from(title))
+        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
+    let inner = block.inner(rect);
+    frame.render_widget(block, rect);
+    if inner.height == 0 || inner.width == 0 {
+        return;
+    }
+    let items: Vec<ListItem> = labels
+        .into_iter()
+        .map(|label| ListItem::new(Span::raw(label)))
+        .collect();
+    let visible = usize::from(inner.height);
+    let selected = cursor.min(items.len().saturating_sub(1));
+    let mut list_state = ListState::default();
+    list_state.select(Some(selected));
+    if selected >= visible {
+        *list_state.offset_mut() = selected - visible + 1;
+    }
+    let list = List::new(items)
+        .highlight_symbol("> ")
+        .highlight_style(Style::default().add_modifier(ratatui::style::Modifier::REVERSED));
+    frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
 fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
