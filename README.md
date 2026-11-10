@@ -11,6 +11,7 @@ SILV is an experimental software, written by LLM-agent and me, written for me fo
 coding and learning Github systems (releases, etc.).
 I am not responsible for its use, reuse, or forks. Use it on your own risk.
 All used dependencies rights belong to their respective owners.
+This software provided as is. I don’t promise to fix anything or respond to issues.
 
 ## Description
 
@@ -230,8 +231,8 @@ cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
-Roadmap: `.ai/plan/2026-11-10-silv-v0.1.0.md`; worklogs: `.ai/worklogs/`.
-Contributing: see `CONTRIBUTING.md`.
+Roadmap and worklogs are kept out of the public repository. See `CHANGELOG.md` for what shipped and
+[`CONTRIBUTING.md`](CONTRIBUTING.md) for how to work on the code.
 
 ## AI disclosure
 
