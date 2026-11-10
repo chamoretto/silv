@@ -17,7 +17,7 @@ const LINES: [&str; 21] = [
     "the source line for plain logs).",
     "",
     "Keys:",
-    "  /            focus search            F            add a filter",
+    "  /            focus search            F            filter wizard: field, operator, value",
     "  Tab/BackTab  move focus              Enter        open record / apply input / sort focused field",
     "  j k g G Pg   move row                s            sort focused field (asc, desc, off)",
     "  c            field picker            d            delete focused filter, or focused column in header",

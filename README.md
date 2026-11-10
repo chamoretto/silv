@@ -112,13 +112,14 @@ leaf    := FIELD ('=' | '!=' | '~' | '!~' | '^' | '!^') PATTERN
 `^` / `!^` test existence. Example:
 `--filter 'level=WARN* and (app.env=prod or app.env=staging) and not message.logger=aiokafka.*'`.
 
-Interactive mode exposes the same predicates as chips: `/` search, `F` add filter (the input
-accepts the DSL), chips are deleted with `x`/`d`.
+Interactive mode exposes the same predicates as chips: `/` search, `F` guided filter wizard
+(field -> operator -> value, with an autocomplete dropdown of discovered fields; typing a full DSL
+expression and pressing Enter adds it as-is), chips are deleted with `x`/`d`.
 
 ## Interactive key map
 
 ```text
-/            focus search            F            add a filter
+/            focus search            F            filter wizard: field, operator, value
 Tab/BackTab  move focus              Enter        open record / apply input / sort focused field
 j k g G Pg   move row                s            sort focused field (asc, desc, off)
 c            field picker            d            delete focused filter, or focused column in header
