@@ -14,7 +14,9 @@ use std::time::Duration;
 use miette::Context;
 use miette::IntoDiagnostic;
 use miette::Result;
+#[cfg(windows)]
 use ratatui::crossterm::event::DisableMouseCapture;
+#[cfg(windows)]
 use ratatui::crossterm::event::EnableMouseCapture;
 use ratatui::crossterm::event::Event;
 use ratatui::crossterm::event::KeyEventKind;
@@ -42,16 +44,50 @@ pub fn run(store: LogStore, config: &Config) -> Result<()> {
     let mut state = AppState::new(store, config.clone());
     let mouse = capture_mouse(config);
     if mouse {
-        let _ = execute!(std::io::stdout(), EnableMouseCapture);
+        mouse_enable();
     }
 
     let result = run_loop(&mut terminal, &mut state).context("interactive session failed");
 
     if mouse {
-        let _ = execute!(std::io::stdout(), DisableMouseCapture);
+        mouse_disable();
     }
     ratatui::restore();
     result
+}
+
+/// Minimal mouse reporting: button press/release + wheel (1000) with SGR coords
+/// (1006). The app only consumes clicks and wheel; crossterm's own capture also
+/// requests 1003 (all motion), which is traffic nobody listens to.
+#[cfg(unix)]
+struct MouseMinimal(bool);
+
+#[cfg(unix)]
+impl ratatui::crossterm::Command for MouseMinimal {
+    fn write_ansi(&self, f: &mut impl std::fmt::Write) -> std::fmt::Result {
+        f.write_str(if self.0 {
+            "\x1b[?1000h\x1b[?1006h"
+        } else {
+            "\x1b[?1006l\x1b[?1000l"
+        })
+    }
+}
+
+fn mouse_enable() {
+    #[cfg(unix)]
+    let _ = execute!(std::io::stdout(), MouseMinimal(true));
+    // Windows: console mode flags have no motion-free variant below 1000 semantics;
+    // conhost only reports motion while a button is held, and Windows Terminal
+    // receives the same console records. crossterm's capture is the console-mode path.
+    #[cfg(windows)]
+    let _ = execute!(std::io::stdout(), EnableMouseCapture);
+}
+
+fn mouse_disable() {
+    #[cfg(unix)]
+    let _ = execute!(std::io::stdout(), MouseMinimal(false));
+    #[cfg(windows)]
+    let _ = execute!(std::io::stdout(), DisableMouseCapture);
 }
 
 /// ConEmu-class consoles report mouse records as raw legacy bytes (2-3 printable
