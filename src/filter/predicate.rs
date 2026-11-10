@@ -136,6 +136,15 @@ impl LeafOp {
     pub const fn is_negative(self) -> bool {
         matches!(self, Self::Neq | Self::NotExists | Self::NotContains)
     }
+
+    /// Style role for this operator: green for positive comparisons, soft red for negations.
+    pub const fn style(self) -> crate::render::color::Sg {
+        if self.is_negative() {
+            crate::render::color::Sg::OpNegative
+        } else {
+            crate::render::color::Sg::OpPositive
+        }
+    }
 }
 
 impl Display for LeafOp {
@@ -386,6 +395,17 @@ mod tests {
         assert!(Predicate::contains(FieldPath::parse("meta.tags").unwrap(), glob("b")).eval(&record));
         assert!(Predicate::contains(FieldPath::root(), glob("42")).eval(&record));
         assert!(!Predicate::contains(FieldPath::root(), glob("zzz")).eval(&record));
+    }
+
+    #[test]
+    fn operator_styles_split_positive_and_negative() {
+        use crate::render::color::Sg;
+        assert_eq!(LeafOp::Eq.style(), Sg::OpPositive);
+        assert_eq!(LeafOp::Neq.style(), Sg::OpNegative);
+        assert_eq!(LeafOp::Contains.style(), Sg::OpPositive);
+        assert_eq!(LeafOp::NotContains.style(), Sg::OpNegative);
+        assert_eq!(LeafOp::Exists.style(), Sg::OpPositive);
+        assert_eq!(LeafOp::NotExists.style(), Sg::OpNegative);
     }
 
     #[test]

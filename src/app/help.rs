@@ -9,7 +9,7 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 21] = [
+const LINES: [&str; 22] = [
     "SILV - simple interactive log viewer",
     "",
     "Layout: search bar, filter chips, field header, rows, status. The top stays visible while scrolling.",
@@ -23,7 +23,8 @@ const LINES: [&str; 21] = [
     "  c            field picker            d            delete focused filter, or focused column in header",
     "  v            cycle render mode       t m          toggle timestamp / message column",
     "  L r A        case, regex, scope      x X          clear search, clear all filters",
-    "  Mouse        click row = detail, click header = sort, wheel = scroll",
+    "  Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort",
+    "  Mouse        click row = detail, click header = drag mode, wheel = scroll",
     "  ?            this help               q, Ctrl-C    quit",
     "",
     "Filter grammar: field=pattern, field!=pattern, field~text, field!~text, field^ (exists), field!^ (missing),",

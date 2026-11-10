@@ -146,7 +146,8 @@ j k g G Pg   move row                s            sort focused field (asc, desc,
 c            field picker            d            delete focused filter, or focused column in header
 v            cycle render mode       t m          toggle timestamp / message column
 L r A        case, regex, scope      x X          clear search, clear all filters
-Mouse        click row = detail, click header = sort, wheel = scroll
+Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort
+Mouse        click row = detail, click header = drag mode, wheel = scroll
 ?            help                    q, Ctrl-C    quit
 ```
 
@@ -163,9 +164,9 @@ In the record detail overlay: `a` toggle column, `f`/`F` eq/neq filter from a va
 
 ## Mouse and terminal compatibility
 
-- Interactive mode captures the mouse (click row = detail, click header = sort, wheel = scroll,
-  click inputs = focus) on terminals that report mouse events properly (Windows Terminal, conhost,
-  all unix terminals).
+- Interactive mode captures the mouse (click row = detail, click header = column drag mode,
+  wheel = scroll, click inputs = focus) on terminals that report mouse events properly
+  (Windows Terminal, conhost, all unix terminals).
 - ConEmu/MSYS2/JetBrains-embedded (RustRover, IntelliJ) class consoles report mouse records as raw
   legacy bytes (2-3 printable bytes per event, indistinguishable from typed text). SILV detects
   these environments (`ConEmuANSI`, `ConEmuPID`, `ConEmuTask`, `MSYSCON`,

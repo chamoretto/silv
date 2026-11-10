@@ -27,6 +27,8 @@ pub enum Sg {
     Error,
     Fatal,
     Invalid,
+    OpPositive,
+    OpNegative,
 }
 
 impl Sg {
@@ -66,6 +68,8 @@ impl Sg {
             Self::Error => "1;38;5;196",
             Self::Fatal => "1;38;5;207",
             Self::Invalid => "1;38;5;204",
+            Self::OpPositive => "38;5;35",
+            Self::OpNegative => "38;5;210",
         }
     }
 
@@ -97,6 +101,9 @@ impl Sg {
             Self::Error => style.fg(Color::Red).add_modifier(Modifier::BOLD),
             Self::Fatal => style.fg(Color::Magenta).add_modifier(Modifier::BOLD),
             Self::Invalid => style.fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            Self::OpPositive => style.fg(Color::Green),
+            // Soft "white red" for negations: pale salmon, not a bright solid red.
+            Self::OpNegative => style.fg(Color::Rgb(255, 135, 135)),
         }
     }
 }

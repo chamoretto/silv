@@ -5,6 +5,8 @@ use ratatui::layout::Constraint;
 use ratatui::layout::Flex;
 use ratatui::layout::Layout;
 use ratatui::layout::Rect;
+use ratatui::style::Color;
+use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
@@ -15,6 +17,7 @@ use ratatui::widgets::HighlightSpacing;
 use ratatui::widgets::List;
 use ratatui::widgets::ListItem;
 use ratatui::widgets::ListState;
+use ratatui::widgets::Paragraph;
 use ratatui::widgets::Row;
 use ratatui::widgets::Table;
 use ratatui::widgets::TableState;
@@ -27,6 +30,7 @@ use crate::app::state::Focus;
 use crate::app::state::WIZARD_OPS;
 use crate::app::state::WizardPhase;
 use crate::cli::RenderChoice;
+use crate::filter::Predicate;
 use crate::render::fields::Column;
 use crate::render::record_render::Cell;
 use crate::render::record_render::highlight;
@@ -37,13 +41,15 @@ use crate::render::table as table_layout;
 
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
+const CHIPS_HINT: &str = "F to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
 
 /// Renders the whole screen.
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
+    let chips_height: u16 = if state.filters.is_empty() { 1 } else { 2 };
     let rects = Layout::vertical([
         Constraint::Length(1),
-        Constraint::Length(1),
+        Constraint::Length(chips_height),
         Constraint::Length(1),
         Constraint::Min(3),
         Constraint::Length(1),
@@ -129,39 +135,139 @@ fn cursor_spans(text: &str, cursor: usize, focused: bool) -> Vec<Span<'static>> 
 }
 
 fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let mut x = 0u16;
-    let mut spans: Vec<Span<'static>> = vec![Span::styled(
-        "filters: ",
-        Style::default().fg(ratatui::style::Color::DarkGray),
-    )];
-    x += 9;
     state.chip_cells.clear();
+    let mut lines = vec![Line::from(vec![
+        Span::styled("filters: ", Style::default().fg(Color::DarkGray)),
+        Span::styled(CHIPS_HINT, Style::default().fg(Color::DarkGray)),
+    ])];
+    if state.filters.is_empty() {
+        frame.render_widget(Paragraph::new(lines), area);
+        return;
+    }
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut x = 0u16;
     for (index, predicate) in state.filters.iter().enumerate() {
-        let label = predicate.to_string();
         let focused = state.focus == Focus::FilterChips && state.filter_cursor == index;
-        let text = format!("[{label}] ");
-        let start = x;
-        let length = u16::try_from(text.chars().count()).unwrap_or(u16::MAX);
-        let style = if focused {
-            Style::default().add_modifier(ratatui::style::Modifier::REVERSED)
-        } else if predicate.has_glob() {
-            Style::default()
+        let base = if focused {
+            Style::default().add_modifier(Modifier::REVERSED)
         } else {
-            Style::default().fg(ratatui::style::Color::Gray)
+            Style::default()
         };
-        spans.push(Span::styled(text, style));
+        let brackets = base.fg(Color::DarkGray);
+        let body = predicate_spans(predicate, base);
+        let body_width: usize = body.iter().map(span_width).sum();
+        let length = u16::try_from(body_width + 3).unwrap_or(u16::MAX);
+        spans.push(Span::styled("[", brackets));
+        spans.extend(body);
+        spans.push(Span::styled("] ", brackets));
+        let start = x;
         state
             .chip_cells
-            .push((start, start.saturating_add(length.saturating_sub(1)), index));
+            .push((start, start.saturating_add(length.saturating_sub(1)), index, 1));
         x = x.saturating_add(length);
     }
-    if state.filters.is_empty() {
-        spans.push(Span::styled(
-            "F to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))",
-            Style::default().fg(ratatui::style::Color::DarkGray),
-        ));
+    lines.push(Line::from(spans));
+    frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
+fn predicate_spans(predicate: &Predicate, base: Style) -> Vec<Span<'static>> {
+    let muted = base.fg(Color::DarkGray);
+    match predicate {
+        Predicate::Leaf { field, op, matcher } => {
+            let mut spans = vec![
+                Span::styled(field.to_string(), base.fg(Color::Gray)),
+                Span::styled(
+                    if matcher.is_some() {
+                        format!(" {} ", op.token())
+                    } else {
+                        format!(" {}", op.token())
+                    },
+                    base.patch(op.style().ratatui()),
+                ),
+            ];
+            if let Some(matcher) = matcher {
+                let style = if predicate.has_glob() {
+                    base
+                } else {
+                    base.fg(Color::Gray)
+                };
+                spans.push(Span::styled(matcher.pattern.clone(), style));
+            }
+            spans
+        },
+        Predicate::All(children) => join_predicate_spans(children, "and", base),
+        Predicate::Any(children) => join_predicate_spans(children, "or", base),
+        Predicate::Not(child) => {
+            let mut spans = vec![Span::styled("not ", muted)];
+            let needs_paren = matches!(child.as_ref(), Predicate::Any(_));
+            if needs_paren {
+                spans.push(Span::styled("(", muted));
+            }
+            spans.extend(predicate_spans(child, base));
+            if needs_paren {
+                spans.push(Span::styled(")", muted));
+            }
+            spans
+        },
     }
-    frame.render_widget(ratatui::widgets::Paragraph::new(Line::from(spans)), area);
+}
+
+fn join_predicate_spans(children: &[Predicate], separator: &str, base: Style) -> Vec<Span<'static>> {
+    let muted = base.fg(Color::DarkGray);
+    let mut spans = Vec::new();
+    for (index, child) in children.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled(format!(" {separator} "), muted));
+        }
+        let needs_paren = matches!(child, Predicate::All(_) | Predicate::Any(_));
+        if needs_paren {
+            spans.push(Span::styled("(", muted));
+        }
+        spans.extend(predicate_spans(child, base));
+        if needs_paren {
+            spans.push(Span::styled(")", muted));
+        }
+    }
+    spans
+}
+
+fn span_width(span: &Span<'_>) -> usize {
+    span.content.chars().count()
+}
+
+/// Label split into spans with every case-insensitive `needle` run highlighted by background.
+pub fn highlight_label(label: &str, needle: &str) -> Vec<Span<'static>> {
+    let needle_chars: Vec<char> = needle.chars().collect();
+    if needle_chars.is_empty() {
+        return vec![Span::raw(label.to_owned())];
+    }
+    let chars: Vec<char> = label.chars().collect();
+    let mut spans = Vec::new();
+    let mut plain = String::new();
+    let mut index = 0usize;
+    while index < chars.len() {
+        let hit = index + needle_chars.len() <= chars.len()
+            && chars[index..index + needle_chars.len()]
+                .iter()
+                .zip(needle_chars.iter())
+                .all(|(a, b)| a.eq_ignore_ascii_case(b));
+        if hit {
+            if !plain.is_empty() {
+                spans.push(Span::raw(std::mem::take(&mut plain)));
+            }
+            let text: String = chars[index..index + needle_chars.len()].iter().collect();
+            spans.push(Span::styled(text, Style::default().bg(Color::DarkGray)));
+            index += needle_chars.len();
+        } else {
+            plain.push(chars[index]);
+            index += 1;
+        }
+    }
+    if !plain.is_empty() {
+        spans.push(Span::raw(plain));
+    }
+    spans
 }
 
 fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
@@ -191,34 +297,44 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
 /// Autocomplete list under the filter input while the guided builder is open.
 fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
     state.areas.dropdown = Rect::default();
-    let (phase, cursor, labels) = match state.wizard.as_ref() {
-        Some(wizard) if wizard.phase == WizardPhase::Field => (
-            wizard.phase,
-            wizard.cursor,
-            wizard
-                .matches
-                .iter()
-                .map(|candidate| candidate.label.clone())
-                .collect::<Vec<_>>(),
-        ),
+    let (phase, cursor, items): (WizardPhase, usize, Vec<ListItem>) = match state.wizard.as_ref() {
+        Some(wizard) if wizard.phase == WizardPhase::Field => {
+            let needle = state.filter_input.text().to_ascii_lowercase();
+            (
+                wizard.phase,
+                wizard.cursor,
+                wizard
+                    .matches
+                    .iter()
+                    .map(|candidate| ListItem::new(Line::from(highlight_label(&candidate.label, &needle))))
+                    .collect(),
+            )
+        },
         Some(wizard) if wizard.phase == WizardPhase::Operator => (
             wizard.phase,
             wizard.cursor,
             WIZARD_OPS
                 .iter()
-                .map(|option| option.label.to_owned())
-                .collect::<Vec<_>>(),
+                .map(|option| {
+                    // Color the leading operator token green (positive) or soft red (negation).
+                    let (token, rest) = option.label.split_once(' ').unwrap_or((option.label, ""));
+                    ListItem::new(Line::from(vec![
+                        Span::styled(token.to_owned(), option.op.style().ratatui()),
+                        Span::raw(rest.to_owned()),
+                    ]))
+                })
+                .collect(),
         ),
         _ => return,
     };
-    if labels.is_empty() {
+    if items.is_empty() {
         return;
     }
     let y = state.areas.filter.y.saturating_add(1);
     if y >= screen.y.saturating_add(screen.height) {
         return;
     }
-    let height = u16::try_from(labels.len().min(12) + 2)
+    let height = u16::try_from(items.len().min(12) + 2)
         .unwrap_or(u16::MAX)
         .min(screen.y.saturating_add(screen.height) - y);
     if height < 2 {
@@ -239,16 +355,12 @@ fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
     };
     let block = Block::bordered()
         .title(Line::from(title))
-        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
+        .border_style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(rect);
     frame.render_widget(block, rect);
     if inner.height == 0 || inner.width == 0 {
         return;
     }
-    let items: Vec<ListItem> = labels
-        .into_iter()
-        .map(|label| ListItem::new(Span::raw(label)))
-        .collect();
     let visible = usize::from(inner.height);
     let selected = cursor.min(items.len().saturating_sub(1));
     let mut list_state = ListState::default();
@@ -258,7 +370,7 @@ fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
     }
     let list = List::new(items)
         .highlight_symbol("> ")
-        .highlight_style(Style::default().add_modifier(ratatui::style::Modifier::REVERSED));
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
     frame.render_stateful_widget(list, inner, &mut list_state);
 }
 
@@ -428,22 +540,28 @@ fn pad(text: &str, column: usize) -> String {
 }
 
 fn draw_status(frame: &mut Frame, state: &AppState, area: Rect) {
-    let message = state.message.clone().unwrap_or_default();
-    let left = state.status.clone();
-    let text = if message.is_empty() {
-        left
-    } else {
-        let available = usize::from(area.width);
-        let taken = crate::render::text::width(&left) + 3;
-        format!("{left} | {}", crate::render::text::truncate(&message, available.saturating_sub(taken)))
+    let reversed = Style::default().add_modifier(Modifier::REVERSED);
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut used = 0usize;
+    let push = |spans: &mut Vec<Span<'static>>, used: &mut usize, text: String, style: Style| {
+        *used += crate::render::text::width(&text);
+        spans.push(Span::styled(text, style));
     };
-    frame.render_widget(
-        ratatui::widgets::Paragraph::new(Line::from(Span::styled(
-            pad(&text, usize::from(area.width)),
-            Style::default().add_modifier(ratatui::style::Modifier::REVERSED),
-        ))),
-        area,
-    );
+    push(&mut spans, &mut used, state.status.clone(), reversed);
+    for (index, (label, dir)) in state.sort_marks.iter().enumerate() {
+        let separator = if index == 0 { " | sort " } else { "," };
+        push(&mut spans, &mut used, separator.to_owned(), reversed);
+        push(&mut spans, &mut used, label.clone(), reversed);
+        push(&mut spans, &mut used, " ".to_owned(), reversed);
+        // The sort symbol gets its own background so it stands out in the bar.
+        push(&mut spans, &mut used, dir.marker().to_owned(), Style::default().bg(Color::DarkGray));
+    }
+    if let Some(message) = state.message.as_ref() {
+        push(&mut spans, &mut used, format!(" | {message}"), reversed);
+    }
+    let missing = usize::from(area.width).saturating_sub(used);
+    push(&mut spans, &mut used, " ".repeat(missing), reversed);
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// Centers an area of the given percentage within `area`.
@@ -460,4 +578,66 @@ pub fn centered(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
 
 pub const fn gap() -> &'static str {
     GAP
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::filter::MatchKind;
+    use crate::filter::Matcher;
+    use crate::model::field::FieldPath;
+
+    fn spans_text(spans: &[Span<'_>]) -> String {
+        spans.iter().map(|span| span.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn highlight_label_marks_needle_runs() {
+        let spans = highlight_label("record.file.path", "file");
+        assert_eq!(spans_text(&spans), "record.file.path");
+        assert!(
+            spans
+                .iter()
+                .any(|span| span.style.bg == Some(Color::DarkGray) && span.content.as_ref() == "file")
+        );
+    }
+
+    #[test]
+    fn highlight_label_is_case_insensitive_and_empty_needle_is_plain() {
+        let spans = highlight_label("Message", "me");
+        assert!(spans.iter().any(|span| span.content.as_ref() == "Me"));
+        let plain = highlight_label("Message", "");
+        assert_eq!(plain.len(), 1);
+    }
+
+    #[test]
+    fn chip_spans_pad_the_operator_and_color_it() {
+        let matcher = Matcher::compile("*aiokafka*", MatchKind::Glob, true, false).expect("glob");
+        let predicate = Predicate::neq(FieldPath::parse("record.file.path").expect("path"), matcher);
+        let spans = predicate_spans(&predicate, Style::default());
+        assert_eq!(spans_text(&spans), "record.file.path != *aiokafka*");
+        let op = spans
+            .iter()
+            .find(|span| span.content.as_ref() == " != ")
+            .expect("operator span");
+        assert_eq!(op.style.fg, Some(Color::Rgb(255, 135, 135)));
+    }
+
+    #[test]
+    fn chip_spans_compose_composites() {
+        let predicate = Predicate::all(vec![
+            Predicate::exists(FieldPath::parse("a").expect("path")),
+            Predicate::eq(
+                FieldPath::parse("b").expect("path"),
+                Matcher::compile("x", MatchKind::Glob, true, false).expect("glob"),
+            ),
+        ]);
+        let spans = predicate_spans(&predicate, Style::default());
+        assert_eq!(spans_text(&spans), "a ^ and b = x");
+        let eq = spans
+            .iter()
+            .find(|span| span.content.as_ref() == " = ")
+            .expect("operator span");
+        assert_eq!(eq.style.fg, Some(Color::Green));
+    }
 }
