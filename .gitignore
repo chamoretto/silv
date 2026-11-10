@@ -20,6 +20,8 @@ target/
 
 /.*
 !.cargo
+!.github
+!.github/**
 !.dockerignore
 !.gitignore
 !.gitmodules
@@ -32,3 +34,4 @@ logs/*.log
 *.log
 .ai
 dist/
+.opencode
