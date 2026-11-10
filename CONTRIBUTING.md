@@ -23,6 +23,22 @@ cargo test --all-targets
 This project is developed with AI agents (see the README AI disclosure). If you used an AI
 assistant in your PR, say so in the PR description and be ready to explain the code.
 
+## Changelog automation (git-cliff)
+
+The `Unreleased` section of `CHANGELOG.md` is kept in step with history automatically:
+`.githooks/post-commit` runs `git-cliff` after every commit and folds the refreshed file into
+that commit by amending. One-time setup per clone:
+
+```sh
+git config core.hooksPath .githooks
+```
+
+The hook skips rebase, cherry-pick and merge sequences, never re-enters its own amend
+(guarded by `SILV_CHANGELOG_HOOK`), and does nothing on machines without `git-cliff`
+(`cargo install --locked git-cliff`, `winget`, or GitHub release binaries). The changelog is
+commit-based: each entry is one commit's subject line, and released sections link the commit
+SHA; `Unreleased` entries stay plain because their SHAs are not final yet.
+
 ## Release routine (maintainers)
 
 Run on `main` with a clean tree (`git status --short` prints nothing). The steps mirror
@@ -38,7 +54,9 @@ on GitHub, so run their local equivalents before pushing.
    cargo set-version 0.1.1     # cargo-edit (cargo install --locked cargo-edit), or edit Cargo.toml
    ```
 
-3. Regenerate the changelog from history, naming the tag that is about to be created:
+3. Regenerate the changelog from history, naming the tag that is about to be created (the
+   post-commit hook keeps `Unreleased` current, so this step turns it into the release
+   section and attaches the commit SHA links):
 
    ```sh
    git-cliff --tag v0.1.1 -o CHANGELOG.md

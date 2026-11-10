@@ -52,6 +52,9 @@ Prefer dependencies with static linking option.
 git are initialized offline. Use git worktrees, branches to save code, try out things in different branches, etc.
 In commits use Conventional commits (`docs/conventional-commits.md`). To preserve style, use `git-cliff`(git-cliff.org)
 CLI and configs (it is installed)
+CHANGELOG.md is generated (commit-based, see CONTRIBUTING.md): a post-commit hook (`.githooks`,
+enable with `git config core.hooksPath .githooks`) updates it automatically; never edit it by hand,
+the hook amends commits with the refreshed file. History rewrites (rebase, cherry-pick) skip the hook.
 Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 ## Self-improvement

@@ -1,0 +1,25 @@
+#!/bin/sh
+# Keep CHANGELOG.md in step with the commit history (git-cliff).
+#
+# After each commit the changelog is regenerated from the tags and commits
+# that exist, so the Unreleased section gains the commit automatically. The
+# refresh is folded into the commit by amending; the amend re-triggers this
+# hook, so SILV_CHANGELOG_HOOK guards the loop.
+
+git_dir=$(git rev-parse --git-dir) || exit 0
+
+# Never touch history while another command owns it, and never re-enter.
+[ -n "$SILV_CHANGELOG_HOOK" ] && exit 0
+[ -d "$git_dir/rebase-merge" ] && exit 0
+[ -d "$git_dir/rebase-apply" ] && exit 0
+[ -f "$git_dir/MERGE_HEAD" ] && exit 0
+[ -f "$git_dir/CHERRY_PICK_HEAD" ] && exit 0
+[ -f "$git_dir/REVERT_HEAD" ] && exit 0
+
+command -v git-cliff >/dev/null 2>&1 || exit 0
+
+git-cliff -o CHANGELOG.md || exit 0
+git diff --quiet -- CHANGELOG.md && exit 0
+
+git add CHANGELOG.md
+SILV_CHANGELOG_HOOK=1 git commit --amend --no-edit --no-verify -q
