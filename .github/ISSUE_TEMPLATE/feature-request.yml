@@ -1,0 +1,29 @@
+name: Feature Request
+description: Propose a flag, filter feature, rendering mode, or key binding
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem this solves
+      description: what you cannot do in silv today
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: preferred CLI flags, keys, and output shape
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: I understand silv is experimental software with no compatibility promises
+          required: true
