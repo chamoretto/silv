@@ -139,6 +139,17 @@ In the record detail overlay: `a` toggle column, `f`/`F` eq/neq filter from a va
   hits are highlighted (reverse video) in table and kv output.
 - `--stats` prints parse counts, source list and bad-line summaries to stderr.
 
+## Mouse and terminal compatibility
+
+- Interactive mode captures the mouse (click row = detail, click header = sort, wheel = scroll,
+  click inputs = focus) on terminals that report mouse events properly (Windows Terminal, conhost,
+  all unix terminals).
+- ConEmu/MSYS2-class consoles report mouse records as raw legacy bytes (2-3 printable bytes per
+  event, indistinguishable from typed text). SILV detects these environments (`ConEmuANSI`,
+  `ConEmuPID`, `ConEmuTask`, `MSYSCON` in the environment) and disables mouse capture there, so
+  typing is never corrupted. Wheel and click support is then unavailable (use keys: `j`/`k`/`Pg`);
+  force the behavior with `--mouse enable|disable|auto`.
+
 ## Exit codes
 
 ```text
