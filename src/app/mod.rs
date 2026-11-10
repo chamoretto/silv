@@ -103,7 +103,13 @@ fn capture_mouse(config: &Config) -> bool {
 
 fn leaks_mouse_bytes(env: &dyn Fn(&str) -> Option<String>) -> bool {
     let set = |key: &str| env(key).is_some_and(|value| !value.is_empty() && value != "OFF");
-    set("ConEmuANSI") || set("ConEmuPID") || set("ConEmuTask") || set("MSYSCON")
+    // ConEmu/MSYS family send legacy "ESC M b x y" records that crossterm half-consumes.
+    // JetBrains embedded terminals (RustRover, IntelliJ) run their own PTY with the same leak.
+    set("ConEmuANSI")
+        || set("ConEmuPID")
+        || set("ConEmuTask")
+        || set("MSYSCON")
+        || env("TERMINAL_EMULATOR").is_some_and(|value| value == "JetBrains")
 }
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, state: &mut AppState) -> Result<()> {
@@ -169,6 +175,7 @@ mod tests {
         assert!(leaks_mouse_bytes(&env(&[("ConEmuANSI", "ON")])));
         assert!(leaks_mouse_bytes(&env(&[("ConEmuPID", "1234")])));
         assert!(leaks_mouse_bytes(&env(&[("MSYSCON", "mintty.exe")])));
+        assert!(leaks_mouse_bytes(&env(&[("TERMINAL_EMULATOR", "JetBrains")])));
     }
 
     #[test]
@@ -177,5 +184,6 @@ mod tests {
         assert!(!leaks_mouse_bytes(&env(&[("WT_SESSION", "abc")])));
         assert!(!leaks_mouse_bytes(&env(&[("ConEmuANSI", "OFF")])));
         assert!(!leaks_mouse_bytes(&env(&[("ConEmuANSI", "")])));
+        assert!(!leaks_mouse_bytes(&env(&[("TERMINAL_EMULATOR", "xterm-256color")])));
     }
 }
