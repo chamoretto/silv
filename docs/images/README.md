@@ -6,10 +6,10 @@ Screenshot assets for the README, the wiki and GitHub discussions live here.
 
 ```text
 docs/images/
-  ui-overview.png          full-screen table view
-  ui-detail.png            record detail overlay
-  ui-stream.png            stream mode with highlighted hits
-  terminal-<name>.png      environment specific captures
+  ui-interactive-sample-jsonl.png   interactive table view, filter chip, sort header
+  ui-detail.png                     record detail overlay
+  ui-stream.png                     stream mode with highlighted hits
+  terminal-<name>.png               environment specific captures
 ```
 
 Lowercase kebab-case names, no spaces, no dates in file names (git history carries dates).
@@ -31,11 +31,11 @@ Lowercase kebab-case names, no spaces, no dates in file names (git history carri
 ## Referencing from markdown
 
 ```markdown
-![table view](docs/images/ui-overview.png)
+![interactive table view](docs/images/ui-interactive-sample-jsonl.png)
 
 <table>
   <tr>
-    <td><img src="docs/images/ui-overview.png" width="360"></td>
+    <td><img src="docs/images/ui-interactive-sample-jsonl.png" width="360"></td>
     <td><img src="docs/images/ui-detail.png" width="360"></td>
   </tr>
 </table>
