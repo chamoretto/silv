@@ -22,10 +22,12 @@ use ratatui::widgets::TableState;
 use crate::app::state::AppState;
 use crate::app::state::DetailState;
 use crate::app::state::MenuAction;
+use crate::app::ui::key_spans;
 use crate::render::text::truncate;
 use crate::render::text::width;
 
-const FOOTER: &str = "a column, f eq, F neq, ~ contains, e exists, E missing, v json, Enter menu, Esc close";
+const FOOTER: &str =
+    "[a] column, [f] eq, [F] neq, [~] contains, [e] exists, [E] missing, [v] json, [Enter] menu, [Esc] close";
 
 /// Draws the full screen detail of the selected record.
 pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
@@ -55,12 +57,9 @@ pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
 
     // Control keys get their own line at the top of the content: the window header is too narrow.
     let rects = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(inner);
-    let footer = if detail.json { "v fields, Esc close" } else { FOOTER };
+    let footer = if detail.json { "[v] fields, [Esc] close" } else { FOOTER };
     frame.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            format!(" {footer}"),
-            Style::default().fg(ratatui::style::Color::DarkGray),
-        ))),
+        Paragraph::new(Line::from(key_spans(footer, Style::default().fg(ratatui::style::Color::DarkGray)))),
         rects[0],
     );
 

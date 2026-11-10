@@ -1404,20 +1404,20 @@ impl AppState {
         self.dirty = true;
     }
 
-    /// Mode-aware control keys shown on the prompt line.
+    /// Mode-aware control keys shown on the prompt line; `[...]` marks key tokens.
     pub fn prompts_text(&self) -> &'static str {
         match self.focus {
             Focus::Header if self.header_mode == HeaderMode::Drag => {
-                "column drag: Left/Right move column, Enter/click sort (asc/desc/off), Space/Esc leave drag"
+                "column drag: [Left]/[Right] move column, [Enter]/[click] sort (asc/desc/off), [Space]/[Esc] leave drag"
             },
             Focus::Header => {
-                "fields: Left/Right move, Space column drag, Enter/s sort (asc/desc/off), d remove column, Esc rows"
+                "fields: [Left]/[Right] move, [Space] column drag, [Enter]/[s] sort (asc/desc/off), [d] remove column, [Esc] rows"
             },
             Focus::Rows if self.row_mode == RowMode::Pick => {
-                "pick value: Left/Right choose field, Enter filter by this value, Space/Esc leave"
+                "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
             },
             Focus::Rows => {
-                "rows: Enter detail, Space pick value, j/k move, g/G first/last, / search, F filter, c fields"
+                "rows: [Enter] detail, [Space] filter by this value, [j]/[k] move, [g]/[G] first/last, [/] search, [F] filter, [c] fields"
             },
             _ => "",
         }
@@ -2003,9 +2003,9 @@ mod tests {
         state.columns.clear();
         state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
         state.focus = Focus::Rows;
-        assert!(state.prompts_text().contains("Space pick value"));
+        assert!(state.prompts_text().contains("[Space] filter by this value"));
         state.focus = Focus::Header;
-        assert!(state.prompts_text().contains("Space column drag"));
+        assert!(state.prompts_text().contains("[Space] column drag"));
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert!(state.prompts_text().contains("column drag"));
         state.focus = Focus::Search;

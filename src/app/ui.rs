@@ -42,8 +42,9 @@ use crate::render::table as table_layout;
 
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
-const CHIPS_HINT: &str = "F to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
-const CHIP_PROMPTS: &str = "filters: d/Backspace remove, Enter edit, Left/Right select, x clear all, F add, Esc rows";
+const CHIPS_HINT: &str = "[F] to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
+const CHIP_PROMPTS: &str =
+    "filters: [d/Backspace] remove, [Enter] edit, [Left/Right] select, [x] clear all, [F] add, [Esc] rows";
 
 /// Renders the whole screen.
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
@@ -110,7 +111,7 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
     if focused {
         spans.extend(cursor_spans(&text, state.search_input.cursor(), true));
     } else if text.is_empty() {
-        spans.push(Span::styled("[/] to search", Style::default().fg(ratatui::style::Color::DarkGray)));
+        spans.extend(key_spans("[/] to search", Style::default().fg(Color::DarkGray)));
     } else {
         spans.push(Span::raw(text));
     }
@@ -145,10 +146,10 @@ fn cursor_spans(text: &str, cursor: usize, focused: bool) -> Vec<Span<'static>> 
 
 fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
     state.chip_cells.clear();
-    let mut lines = vec![Line::from(vec![
-        Span::styled("filters: ", Style::default().fg(Color::DarkGray)),
-        Span::styled(CHIPS_HINT, Style::default().fg(Color::DarkGray)),
-    ])];
+    let hint_base = Style::default().fg(Color::DarkGray);
+    let mut hint_spans = vec![Span::styled("filters: ", hint_base)];
+    hint_spans.extend(key_spans(CHIPS_HINT, hint_base));
+    let mut lines = vec![Line::from(hint_spans)];
     if state.filters.is_empty() {
         frame.render_widget(Paragraph::new(lines), area);
         return;
@@ -177,7 +178,8 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
     }
     lines.push(Line::from(spans));
     if state.focus == Focus::FilterChips {
-        lines.push(Line::from(Span::styled(CHIP_PROMPTS, Style::default().fg(Color::DarkGray))));
+        let prompt = key_spans(CHIP_PROMPTS, Style::default().fg(Color::DarkGray));
+        lines.push(Line::from(prompt));
     }
     frame.render_widget(Paragraph::new(lines), area);
 }
@@ -188,7 +190,8 @@ fn draw_prompts(frame: &mut Frame, state: &AppState, area: Rect) {
     if text.is_empty() {
         return;
     }
-    frame.render_widget(Paragraph::new(Line::from(Span::styled(text, Style::default().fg(Color::DarkGray)))), area);
+    let spans = key_spans(text, Style::default().fg(Color::DarkGray));
+    frame.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
@@ -257,6 +260,38 @@ fn span_width(span: &Span<'_>) -> usize {
     span.content.chars().count()
 }
 
+/// Prompt text with `[key]` tokens rendered with a background; the rest uses `base`.
+pub fn key_spans(text: &str, base: Style) -> Vec<Span<'static>> {
+    let key = base.bg(Color::DarkGray);
+    let mut spans = Vec::new();
+    let mut plain = String::new();
+    let mut key_text = String::new();
+    let mut in_key = false;
+    for ch in text.chars() {
+        match ch {
+            '[' if !in_key => {
+                if !plain.is_empty() {
+                    spans.push(Span::styled(std::mem::take(&mut plain), base));
+                }
+                in_key = true;
+            },
+            ']' if in_key => {
+                spans.push(Span::styled(std::mem::take(&mut key_text), key));
+                in_key = false;
+            },
+            c if in_key => key_text.push(c),
+            c => plain.push(c),
+        }
+    }
+    if in_key {
+        plain.push_str(&key_text);
+    }
+    if !plain.is_empty() {
+        spans.push(Span::styled(plain, base));
+    }
+    spans
+}
+
 /// Label split into spans with every case-insensitive `needle` run highlighted by background.
 pub fn highlight_label(label: &str, needle: &str) -> Vec<Span<'static>> {
     let needle_chars: Vec<char> = needle.chars().collect();
@@ -295,9 +330,9 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     let focused = state.focus == Focus::FilterInput;
     let text = state.filter_input.text();
     let wizard_suffix = state.wizard.as_ref().map(|wizard| match wizard.phase {
-        WizardPhase::Field => "  1/3 field  Up/Down selects, Enter picks, Esc exits",
-        WizardPhase::Operator => "  2/3 operator  Up/Down, Enter, or type = ! ~ n e E",
-        WizardPhase::Pattern => "  3/3 pattern  Enter applies, Backspace goes back",
+        WizardPhase::Field => "  1/3 field  [Up]/[Down] selects, [Enter] picks, [Esc] exits",
+        WizardPhase::Operator => "  2/3 operator  [Up]/[Down], [Enter], type [=] [!] [~] [n] [e] [E]",
+        WizardPhase::Pattern => "  3/3 pattern  [Enter] applies, [Backspace] goes back",
     });
     if !focused && text.is_empty() && wizard_suffix.is_none() {
         return;
@@ -307,10 +342,11 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
     spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
+    let suffix_base = Style::default().fg(Color::DarkGray);
     if let Some(suffix) = wizard_suffix {
-        spans.push(Span::styled(suffix, Style::default().fg(ratatui::style::Color::DarkGray)));
+        spans.extend(key_spans(suffix, suffix_base));
     } else if focused {
-        spans.push(Span::styled("  Enter applies, Esc closes", Style::default().fg(ratatui::style::Color::DarkGray)));
+        spans.extend(key_spans("  [Enter] applies, [Esc] closes", suffix_base));
     }
     frame.render_widget(ratatui::widgets::Paragraph::new(Line::from(spans)), area);
 }
@@ -441,7 +477,7 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
                 .map(|(position, cell)| {
                     let mut style = cell.style.ratatui();
                     if mark_pick && position == state.pick_cursor {
-                        style = style.bg(Color::DarkGray);
+                        style = style.bg(Color::LightBlue).fg(Color::Black);
                     }
                     TuiCell::from(cell.text.clone()).style(style)
                 })
@@ -643,6 +679,18 @@ mod tests {
         assert!(spans.iter().any(|span| span.content.as_ref() == "Me"));
         let plain = highlight_label("Message", "");
         assert_eq!(plain.len(), 1);
+    }
+
+    #[test]
+    fn key_spans_marks_bracketed_keys() {
+        let spans = key_spans("rows: [Enter] detail, [Space] filter by this value", Style::default());
+        assert_eq!(spans_text(&spans), "rows: Enter detail, Space filter by this value");
+        let keys: Vec<&str> = spans
+            .iter()
+            .filter(|span| span.style.bg == Some(Color::DarkGray))
+            .map(|span| span.content.as_ref())
+            .collect();
+        assert_eq!(keys, ["Enter", "Space"]);
     }
 
     #[test]
