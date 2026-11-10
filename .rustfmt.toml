@@ -1,0 +1,24 @@
+edition = "2024"
+
+max_width = 120
+fn_call_width = 120
+
+reorder_imports = true
+reorder_modules = true
+match_block_trailing_comma = true
+use_field_init_shorthand = true
+use_try_shorthand = true
+newline_style = "Unix"
+
+# nightly or unstable, may be enabled in future
+
+# comment_width = 120
+# imports_granularity = "Crate"
+# group_imports="StdExternalCrate"
+# reorder_impl_items = true
+# format_strings = true
+# wrap_comments = true
+# condense_wildcard_suffixes = true
+# format_code_in_doc_comments = true
+# overflow_delimited_expr = true
+# normalize_comments = true
