@@ -9,27 +9,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-10
+
 ### Fixed
 
-- Release description is the generated changelog text, not the git-cliff output path
-- Release artifacts keep per-target checksum files, so `SHA256SUMS` is no longer overwritten
+- *(ci)* Hand the generated notes file to the release, not the path string
+
+### Documentation
+
+- Deduplicate the 0.1.0 changelog section
+- Move commit and semver specifications into docs/
+- Add interactive TUI screenshot and the maintainer release routine
+
+### Miscellaneous Tasks
+
+- Add image binary rules and screenshot asset guide
 
 ## [0.1.0] - 2026-11-10
 
 ### Added
 
 - Implement SILV v0.1.0 Kibana-like log viewer (TUI and grep-like modes)
-- Guided filter wizard with field autocomplete
+- Guided filter wizard with field autocomplete; fix detail menu Enter
 
 ### Fixed
 
 - Report the correct context for the terminal requirement
 - Stop leaked mouse sequences and hint the search hotkey
-- Swallow ConEmu `M`-led mouse motion bursts in the key filter
+- Swallow ConEmu M-led mouse motion bursts in the key filter
 - Auto-disable mouse capture on ConEmu-class consoles that leak mouse bytes
 - Request click and wheel mouse reporting only, drop motion tracking
 - Auto-disable mouse on JetBrains embedded terminals, dedup filter prompts
-- Detail menu no longer exits on Enter
 
 ### Documentation
 
@@ -55,5 +65,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add repository metadata for github publishing
 - Track Cargo.lock for reproducible release builds
 
-[Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.0...HEAD
+
+[Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/chamoretto/silv/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/chamoretto/silv/releases/tag/v0.1.0
+
