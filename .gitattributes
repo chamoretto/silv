@@ -2,4 +2,13 @@
 *.exe binary
 *.dll binary
 *.pdb binary
+*.sh text eol=lf
+*.ps1 text eol=lf
 *.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.avif binary
+*.mp4 binary
+*.svg text
