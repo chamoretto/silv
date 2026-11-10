@@ -23,7 +23,7 @@ use crate::render::text::truncate;
 pub fn draw(frame: &mut Frame, picker: &PickerState, area: Rect, _enabled: bool) {
     let block = Block::bordered()
         .title(" fields ")
-        .title_bottom(" Enter toggles the column, type to filter, Esc closes ")
+        .title_bottom(" Enter/Space toggles the column, type to filter, Esc closes ")
         .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(block, area);
