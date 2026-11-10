@@ -29,16 +29,14 @@ Run on `main` with a clean tree (`git status --short` prints nothing). The steps
 `.github/workflows/ci.yml` and `.github/workflows/release.yml`; the workflows themselves only run
 on GitHub, so run their local equivalents before pushing.
 
-1. Local CI gate:
+1. Pick the version per [`docs/semantic-versioning.md`](docs/semantic-versioning.md): in `0.y.z`
+   the minor version goes up for features, the patch version for fixes.
+
+2. Bump the version:
 
    ```sh
-   cargo fmt --all --check
-   cargo clippy --all-targets --all-features -- -D warnings
-   cargo test --all-targets
+   cargo set-version 0.1.1     # cargo-edit (cargo install --locked cargo-edit), or edit Cargo.toml
    ```
-
-2. Pick the version per [`docs/semantic-versioning.md`](docs/semantic-versioning.md): in `0.y.z`
-   the minor version goes up for features, the patch version for fixes.
 
 3. Regenerate the changelog from history, naming the tag that is about to be created:
 
@@ -52,14 +50,17 @@ on GitHub, so run their local equivalents before pushing.
    (`git-cliff -o CHANGELOG.md`, `git-cliff --tag ...`) is the supported mode: `--prepend` drops the
    reference links.
 
-4. Bump the version and refresh the lock file:
+4. Local CI gate, after the bump: the build refreshes the `Cargo.lock` entry for the package, so
+   `git diff -- Cargo.lock` should end up showing only that version line.
 
    ```sh
-   cargo set-version 0.1.1                                # cargo-edit, or edit Cargo.toml
-   cargo metadata --offline --format-version 1 > /dev/null # sh; refreshes the Cargo.lock version entry
+   cargo fmt --all --check
+   cargo clippy --all-targets --all-features -- -D warnings
+   cargo test --all-targets
    ```
 
-   In PowerShell replace `> /dev/null` with `| Out-Null`.
+   The `ci` workflow repeats the clippy/test legs on ubuntu, windows and macos; a local run on one
+   platform is not enough before a release, so push the branch and watch the workflow too.
 
 5. Commit the release, tag it, push. Pushing the tag starts the release workflow:
 
