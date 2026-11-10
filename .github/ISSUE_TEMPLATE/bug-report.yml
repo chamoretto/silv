@@ -1,0 +1,37 @@
+name: Bug Report
+description: Report a crash, wrong output, or terminal compatibility problem
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Experimental tool: please include the exact command line and the input shape.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: output of `silv --version`, and the OS/terminal you ran it in
+      placeholder: silv 0.1.0, Windows 11 + JetBrains embedded terminal
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: command line, plus a minimal log snippet (JSON Lines or plain) that triggers it
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: include full miette diagnostic output and the exit code
+    validations:
+      required: true
