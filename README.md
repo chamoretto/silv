@@ -1,5 +1,19 @@
 # silv - simple interactive log viewer
 
+[![CI](https://github.com/chamoretto/silv/actions/workflows/ci.yml/badge.svg)](https://github.com/chamoretto/silv/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/chamoretto/silv?include_prereleases&sort=semver)](https://github.com/chamoretto/silv/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
+
+## Little disclaimer
+
+SILV is an experimental software, written by LLM-agent and me, written for me for my needs, for training in LLM-assisted
+coding and learning Github systems (releases, etc.).
+I am not responsible for its use, reuse, or forks. Use it on your own risk.
+All used dependencies rights belong to their respective owners.
+
+## Description
+
 SILV reads JSON Lines and `timestamp | LEVEL | message key=value` logs and shows them in a
 Kibana-like layout. Two modes share the same visuals:
 
@@ -17,6 +31,9 @@ cargo build --release            # target/release/silv
 scripts/build-release.ps1        # windows release (dist/)
 scripts/build-release.sh         # unix releases (dist/)
 ```
+
+Prebuilt binaries for windows, linux (musl) and apple silicon are attached to each
+[release](https://github.com/chamoretto/silv/releases) (with `SHA256SUMS`).
 
 Requires Rust stable (edition 2024). All dependencies are pure Rust with exact `=x.y.z` pins, so
 fully static builds work on windows (MSVC CRT static) and linux (musl).
@@ -52,13 +69,12 @@ Field paths address values inside each record: `a.b`, quoted keys `a."b.c"`, arr
 `@message` (`@msg`), `@source` (`@file`), `@line` (`@n`).
 
 Alias resolution for the timestamp/level/message pseudo fields: `--timestamp-field`,
-`--level-field`, `--message-field` add paths checked before the built-in defaults
-(`@timestamp, timestamp, ts, time, time_ms, eventTime, datetime, date, _ts, severityText,
+`--level-field`, `--message-field` add paths checked before the built-in defaults (`@timestamp, timestamp, ts, time, time_ms, eventTime, datetime, date, _ts, severityText,
 severity, sev, level, status, severity_number, log.level, msg, message, body, event, event.dataset,
 status_message`).
 
-Level parsing understands names (with aliases like `WARNING`/`ERR`/`FATAL`), syslog numbers
-(0-7), OTel numbers (8-24) and log4j/python/logback style numbers.
+Level parsing understands names (with aliases like `WARNING`/`ERR`/`FATAL`), syslog numbers (0-7), OTel numbers (8-24)
+and log4j/python/logback style numbers.
 
 ## Columns and rendering
 
@@ -66,13 +82,13 @@ Level parsing understands names (with aliases like `WARNING`/`ERR`/`FATAL`), sys
 - `--fields-non-ordered-last` appends every remaining discovered field (flattened to leaf paths)
   after the ordered ones. `--all-fields` uses all of them, `--exclude-fields` never shows some.
 - `--render auto|table|kv|line|json|jsonl`:
-  - `auto`: table when columns are selected, otherwise the format default (kv for JSON Lines,
-    the source line for the plain format);
-  - `table`: aligned columns with a header row (widths sampled, fitted to `--width`);
-  - `kv`: `timestamp LEVEL message key=value key=value ...` per record, alias-covered fields
-    are not repeated;
-  - `line`: the original source line;
-  - `json` / `jsonl`: pretty / compact JSON of the record object.
+    - `auto`: table when columns are selected, otherwise the format default (kv for JSON Lines,
+      the source line for the plain format);
+    - `table`: aligned columns with a header row (widths sampled, fitted to `--width`);
+    - `kv`: `timestamp LEVEL message key=value key=value ...` per record, alias-covered fields
+      are not repeated;
+    - `line`: the original source line;
+    - `json` / `jsonl`: pretty / compact JSON of the record object.
 - Numeric columns right-align; `--truncate-values N` caps cell text (default 120, `0` disables);
   `--no-headers` drops the header row; `--width` overrides the detected terminal width.
 
@@ -112,8 +128,8 @@ leaf    := FIELD ('=' | '!=' | '~' | '!~' | '^' | '!^') PATTERN
 `^` / `!^` test existence. Example:
 `--filter 'level=WARN* and (app.env=prod or app.env=staging) and not message.logger=aiokafka.*'`.
 
-Interactive mode exposes the same predicates as chips: `/` search, `F` guided filter wizard
-(field -> operator -> value, with an autocomplete dropdown of discovered fields; typing a full DSL
+Interactive mode exposes the same predicates as chips: `/` search, `F` guided filter wizard (field -> operator -> value,
+with an autocomplete dropdown of discovered fields; typing a full DSL
 expression and pressing Enter adds it as-is), chips are deleted with `x`/`d`.
 
 ## Interactive key map
@@ -183,11 +199,11 @@ Error: silv::parse::invalid_line
 
 ## Static binaries (drop-in SFTP deployment)
 
-| target | command | linkage |
-|---|---|---|
-| `x86_64-unknown-linux-musl` | `cargo build --release --target x86_64-unknown-linux-musl` (with `target.x86_64-unknown-linux-musl.rustflags = ["-C","target-feature=+crt-static"]`) | fully static, runs on any ubuntu/debian |
-| `x86_64-pc-windows-msvc` | `cargo build --release` (with `target.x86_64-pc-windows-msvc.rustflags = ["-C","target-feature=+crt-static"]`) | static CRT; needs the usual VC runtime present on all modern Windows |
-| `aarch64-apple-darwin` | `cargo build --release` | system libc/libresolv must stay dynamic (Apple forbids fully static); the result runs on every Apple Silicon mac |
+| target                      | command                                                                                                                                              | linkage                                                                                                          |
+|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| `x86_64-unknown-linux-musl` | `cargo build --release --target x86_64-unknown-linux-musl` (with `target.x86_64-unknown-linux-musl.rustflags = ["-C","target-feature=+crt-static"]`) | fully static, runs on any ubuntu/debian                                                                          |
+| `x86_64-pc-windows-msvc`    | `cargo build --release` (with `target.x86_64-pc-windows-msvc.rustflags = ["-C","target-feature=+crt-static"]`)                                       | static CRT; needs the usual VC runtime present on all modern Windows                                             |
+| `aarch64-apple-darwin`      | `cargo build --release`                                                                                                                              | system libc/libresolv must stay dynamic (Apple forbids fully static); the result runs on every Apple Silicon mac |
 
 Everything SILV uses (globset, regex, ratatui/crossterm, serde_json, clap, miette, rayon,
 memmap2, unicode-width) is pure Rust, so the linux-musl target produces a real ELF with zero
@@ -209,13 +225,26 @@ also the musl build when the target is installed) into `dist/`.
 ## Development
 
 ```sh
-cargo test --all-targets        # 129 unit + 22 end-to-end CLI tests
+cargo test --all-targets        # 149 unit + 25 end-to-end CLI tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
 
 Roadmap: `.ai/plan/2026-11-10-silv-v0.1.0.md`; worklogs: `.ai/worklogs/`.
+Contributing: see `CONTRIBUTING.md`.
+
+## AI disclosure
+
+This project was developed with AI coding assistants (agent-driven development in OpenCode,
+operating under the rules published in [`AGENTS.md`](AGENTS.md)). Most code, tests,
+documentation and commit history were drafted by AI agents under human direction.
+
+- All changes are reviewed by the maintainer; the public history contains conventional
+  commits, some co-authored by agents.
+- AI-generated contributions ship under the project MIT license and carry no warranty,
+  exactly like human-written code.
+- Reported security issues are handled like any other code: verify patches before deploying.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT - see [LICENSE](LICENSE).
