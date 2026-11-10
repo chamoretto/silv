@@ -7,26 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- git-cliff: end of header -->
 
+## [Unreleased]
+
+### Fixed
+
+- Release description is the generated changelog text, not the git-cliff output path
+- Release artifacts keep per-target checksum files, so `SHA256SUMS` is no longer overwritten
+
 ## [0.1.0] - 2026-11-10
 
 ### Added
 
 - Implement SILV v0.1.0 Kibana-like log viewer (TUI and grep-like modes)
-- Guided filter wizard with field autocomplete; fix detail menu Enter
+- Guided filter wizard with field autocomplete
 
 ### Fixed
 
 - Report the correct context for the terminal requirement
 - Stop leaked mouse sequences and hint the search hotkey
-- Swallow ConEmu M-led mouse motion bursts in the key filter
+- Swallow ConEmu `M`-led mouse motion bursts in the key filter
 - Auto-disable mouse capture on ConEmu-class consoles that leak mouse bytes
 - Request click and wheel mouse reporting only, drop motion tracking
 - Auto-disable mouse on JetBrains embedded terminals, dedup filter prompts
+- Detail menu no longer exits on Enter
 
 ### Documentation
 
 - Add usage guide, key map, filter grammar and static-link matrix
 - Add changelog via git-cliff
+- Rewrite changelog in keep a changelog notation
+- Add AI disclosure, badges and contributing guide
+- Keep published docs free of internal path references
 
 ### Testing
 
@@ -38,41 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add static release build scripts for windows, linux, macos
 - Enforce LF line endings
 - Add git-cliff configuration
-
-
-## [Unreleased]
-
-## [0.1.0] - 2026-11-10
-
-### Added
-
-- SILV v0.1.0: Kibana-like log viewer with interactive TUI and grep-like stream modes
-- Guided filter wizard with field autocomplete
-
-### Fixed
-
-- Correct context reported for the terminal requirement
-- Leaked mouse sequences are filtered out, and the search hotkey is hinted
-- ConEmu `M`-led mouse motion bursts are swallowed in the key filter
-- Mouse capture is auto-disabled on ConEmu-class consoles that leak mouse bytes
-- Mouse reporting is limited to click and wheel events, motion tracking dropped
-- Mouse is auto-disabled in JetBrains embedded terminals, filter prompts deduplicated
-- Detail menu no longer exits on Enter
-
-### Testing
-
-- End-to-end CLI suite (25 cases) with sample log fixtures
-
-### Documentation
-
-- Usage guide, key map, filter grammar and static-link matrix
-
-### Miscellaneous Tasks
-
-- Project scaffolding (gitignore, rustfmt, agents rules, license)
-- Static release build scripts for windows, linux, macos
-- Enforce LF line endings
-- Changelog and git-cliff configuration
+- Track Cargo.lock and allow .github in version control
+- Add CI, release workflow and repository templates
+- Map git-cliff groups to keep a changelog notation
+- Add repository metadata for github publishing
+- Track Cargo.lock for reproducible release builds
 
 [Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/chamoretto/silv/releases/tag/v0.1.0
