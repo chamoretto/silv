@@ -56,8 +56,10 @@ on GitHub, so run their local equivalents before pushing.
 
    ```sh
    cargo set-version 0.1.1                                # cargo-edit, or edit Cargo.toml
-   cargo metadata --offline --format-version 1 > /dev/null # rewrites the Cargo.lock version entry
+   cargo metadata --offline --format-version 1 > /dev/null # sh; refreshes the Cargo.lock version entry
    ```
+
+   In PowerShell replace `> /dev/null` with `| Out-Null`.
 
 5. Commit the release, tag it, push. Pushing the tag starts the release workflow:
 
