@@ -6,6 +6,7 @@ use ratatui::crossterm::event::MouseEventKind;
 use ratatui::layout::Rect;
 
 use crate::app::input::Editor;
+use crate::app::keymap::KeyPress;
 use crate::cli::Config;
 use crate::cli::RenderChoice;
 use crate::cli::SortDir;
@@ -1039,13 +1040,16 @@ impl AppState {
     }
 
     /// Handles a key press for the current focus and overlays.
+    /// Handles a key press for the current focus and overlays.
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        if modifiers.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char('c') | KeyCode::Char('d')) {
+        let key = KeyPress::new(code, modifiers, self.config.key_map);
+        if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.bind, KeyCode::Char('c') | KeyCode::Char('d'))
+        {
             self.quit();
             return;
         }
         if self.help {
-            match code {
+            match key.bind {
                 KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.help = false,
                 _ => {},
             }
@@ -1053,16 +1057,16 @@ impl AppState {
             return;
         }
         if self.picker.is_some() {
-            self.handle_picker_key(code, modifiers);
+            self.handle_picker_key(key);
             self.dirty = true;
             return;
         }
         if self.detail.is_some() {
-            self.handle_detail_key(code);
+            self.handle_detail_key(key);
             self.dirty = true;
             return;
         }
-        match code {
+        match key.bind {
             KeyCode::Char('?') => {
                 self.help = true;
                 return;
@@ -1074,11 +1078,11 @@ impl AppState {
             _ => {},
         }
         match self.focus {
-            Focus::Search => self.handle_search_key(code, modifiers),
-            Focus::FilterInput => self.handle_filter_key(code, modifiers),
-            Focus::FilterChips => self.handle_chips_key(code),
-            Focus::Header => self.handle_header_key(code),
-            Focus::Rows => self.handle_rows_key(code),
+            Focus::Search => self.handle_search_key(key),
+            Focus::FilterInput => self.handle_filter_key(key),
+            Focus::FilterChips => self.handle_chips_key(key),
+            Focus::Header => self.handle_header_key(key),
+            Focus::Rows => self.handle_rows_key(key),
         }
         self.dirty = true;
     }
@@ -1087,10 +1091,12 @@ impl AppState {
         matches!(self.focus, Focus::Search | Focus::FilterInput)
     }
 
-    fn handle_search_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
-        match code {
-            KeyCode::Char(ch) => {
-                self.search_input.insert(ch);
+    fn handle_search_key(&mut self, key: KeyPress) {
+        match key.bind {
+            KeyCode::Char(_) => {
+                if let Some(ch) = key.typed_char() {
+                    self.search_input.insert(ch);
+                }
                 self.sync_search_from_input();
             },
             KeyCode::Backspace => {
@@ -1136,13 +1142,17 @@ impl AppState {
         }
     }
 
-    fn handle_filter_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
+    fn handle_filter_key(&mut self, key: KeyPress) {
         if self.wizard.is_some() {
-            self.handle_wizard_key(code);
+            self.handle_wizard_key(key);
             return;
         }
-        match code {
-            KeyCode::Char(ch) => self.filter_input.insert(ch),
+        match key.bind {
+            KeyCode::Char(_) => {
+                if let Some(ch) = key.typed_char() {
+                    self.filter_input.insert(ch);
+                }
+            },
             KeyCode::Backspace => {
                 if !self.filter_input.backspace() && self.focus == Focus::FilterInput {
                     self.focus = Focus::FilterChips;
@@ -1171,11 +1181,13 @@ impl AppState {
     }
 
     /// Keys on the guided builder: field autocomplete, operator list, value.
-    fn handle_wizard_key(&mut self, code: KeyCode) {
+    fn handle_wizard_key(&mut self, key: KeyPress) {
         let phase = self.wizard.as_ref().map(|wizard| wizard.phase);
-        match (phase, code) {
-            (Some(WizardPhase::Field), KeyCode::Char(ch)) => {
-                self.filter_input.insert(ch);
+        match (phase, key.bind) {
+            (Some(WizardPhase::Field), KeyCode::Char(_)) => {
+                if let Some(ch) = key.typed_char() {
+                    self.filter_input.insert(ch);
+                }
                 self.wizard_recompute();
             },
             (Some(WizardPhase::Field), KeyCode::Backspace) => {
@@ -1194,13 +1206,21 @@ impl AppState {
             (Some(WizardPhase::Field), KeyCode::Down) => self.wizard_move(1),
             (Some(WizardPhase::Field), KeyCode::Tab) => self.wizard_move(1),
             (Some(WizardPhase::Field), KeyCode::BackTab) => self.wizard_move(-1),
-            (Some(WizardPhase::Operator), KeyCode::Char(ch)) => self.wizard_op_shortcut(ch),
+            (Some(WizardPhase::Operator), KeyCode::Char(_)) => {
+                if let Some(ch) = key.bind_char() {
+                    self.wizard_op_shortcut(ch);
+                }
+            },
             (Some(WizardPhase::Operator), KeyCode::Up) => self.wizard_move(-1),
             (Some(WizardPhase::Operator), KeyCode::Down) => self.wizard_move(1),
             (Some(WizardPhase::Operator), KeyCode::Tab) => self.wizard_move(1),
             (Some(WizardPhase::Operator), KeyCode::BackTab) => self.wizard_move(-1),
             (Some(WizardPhase::Operator), KeyCode::Backspace) => self.wizard_back(),
-            (Some(WizardPhase::Pattern), KeyCode::Char(ch)) => self.filter_input.insert(ch),
+            (Some(WizardPhase::Pattern), KeyCode::Char(_)) => {
+                if let Some(ch) = key.typed_char() {
+                    self.filter_input.insert(ch);
+                }
+            },
             (Some(WizardPhase::Pattern), KeyCode::Backspace) => {
                 if self.filter_input.is_empty() {
                     self.wizard_back();
@@ -1220,8 +1240,8 @@ impl AppState {
         self.dirty = true;
     }
 
-    fn handle_chips_key(&mut self, code: KeyCode) {
-        match code {
+    fn handle_chips_key(&mut self, key: KeyPress) {
+        match key.bind {
             KeyCode::Left | KeyCode::Char('h') => self.filter_cursor = self.filter_cursor.saturating_sub(1),
             KeyCode::Right | KeyCode::Char('l') => {
                 self.filter_cursor = (self.filter_cursor + 1).min(self.filters.len().saturating_sub(1));
@@ -1243,9 +1263,9 @@ impl AppState {
         }
     }
 
-    fn handle_header_key(&mut self, code: KeyCode) {
+    fn handle_header_key(&mut self, key: KeyPress) {
         let dragging = self.header_mode == HeaderMode::Drag;
-        match code {
+        match key.bind {
             KeyCode::Left | KeyCode::Char('h') => {
                 if dragging {
                     self.move_column(-1);
@@ -1295,9 +1315,9 @@ impl AppState {
         }
     }
 
-    fn handle_rows_key(&mut self, code: KeyCode) {
+    fn handle_rows_key(&mut self, key: KeyPress) {
         let picking = self.row_mode == RowMode::Pick;
-        match code {
+        match key.bind {
             KeyCode::Char('q') => self.quit(),
             KeyCode::Char('j') | KeyCode::Down => self.move_cursor(1),
             KeyCode::Char('k') | KeyCode::Up => self.move_cursor(-1),
@@ -1423,8 +1443,8 @@ impl AppState {
         }
     }
 
-    fn handle_detail_key(&mut self, code: KeyCode) {
-        match code {
+    fn handle_detail_key(&mut self, key: KeyPress) {
+        match key.bind {
             KeyCode::Esc => self.close_detail(),
             KeyCode::Char('q') => self.close_detail(),
             KeyCode::Char('j') | KeyCode::Down => self.detail_move(1),
@@ -1485,16 +1505,18 @@ impl AppState {
         }
     }
 
-    fn handle_picker_key(&mut self, code: KeyCode, _modifiers: KeyModifiers) {
-        match code {
+    fn handle_picker_key(&mut self, key: KeyPress) {
+        match key.bind {
             KeyCode::Esc => self.close_picker(),
             // Space toggles like Enter; it must be matched before the catch-all char arm.
             KeyCode::Char(' ') => self.picker_toggle(),
-            KeyCode::Char(ch) => {
-                if let Some(picker) = self.picker.as_mut() {
-                    picker.input.insert(ch);
+            KeyCode::Char(_) => {
+                if let Some(ch) = key.typed_char() {
+                    if let Some(picker) = self.picker.as_mut() {
+                        picker.input.insert(ch);
+                    }
+                    self.picker_filter();
                 }
-                self.picker_filter();
             },
             KeyCode::Backspace => {
                 if let Some(picker) = self.picker.as_mut() {
@@ -1687,6 +1709,7 @@ pub fn detail_json_lines(record: &crate::model::record::LogRecord) -> Vec<String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cli::KeyMapMode;
     use crate::model::field::FieldPath;
 
     fn state_of(records: &[&str]) -> AppState {
@@ -1723,6 +1746,50 @@ mod tests {
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(state.focus, Focus::Rows);
         assert_eq!(state.view.len(), 1);
+    }
+
+    #[test]
+    fn russian_layout_keys_drive_the_bindings() {
+        let mut state = state_of(&["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
+        // Cyrillic letters land on the QWERTY key that carries the binding.
+        state.handle_key(KeyCode::Char('о'), KeyModifiers::NONE); // physical j
+        assert_eq!(state.cursor, 1);
+        state.handle_key(KeyCode::Char('к'), KeyModifiers::NONE); // physical r
+        assert!(state.search.regex);
+        state.handle_key(KeyCode::Char('.'), KeyModifiers::NONE); // physical / focuses search
+        assert_eq!(state.focus, Focus::Search);
+        state.handle_key(KeyCode::Char('й'), KeyModifiers::NONE); // physical q types text here
+        assert_eq!(state.search_input.text(), "й");
+        state.handle_key(KeyCode::Char('й'), KeyModifiers::SHIFT); // physical ? closes help
+        state.focus = Focus::Rows;
+        state.handle_key(KeyCode::Char(','), KeyModifiers::SHIFT); // physical / with Shift is ?
+        assert!(state.help);
+        state.handle_key(KeyCode::Char('й'), KeyModifiers::NONE); // physical q closes help
+        assert!(!state.help);
+        state.handle_key(KeyCode::Char('с'), KeyModifiers::CONTROL); // physical Ctrl-C quits
+        assert!(state.quit);
+    }
+
+    #[test]
+    fn russian_layout_text_entry_keeps_cyrillic() {
+        let mut state = state_of(&["{\"message\":\"ошибка диска\"}", "{\"message\":\"ok\"}"]);
+        state.handle_key(KeyCode::Char('.'), KeyModifiers::NONE); // physical / focuses search
+        assert_eq!(state.focus, Focus::Search);
+        for ch in "ошиб".chars() {
+            state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        assert_eq!(state.search_input.text(), "ошиб");
+        assert_eq!(state.view.len(), 1);
+    }
+
+    #[test]
+    fn raw_key_map_matches_the_typed_character() {
+        let mut state = state_of(&["{\"a\":1}", "{\"a\":2}"]);
+        state.config.key_map = KeyMapMode::Raw;
+        state.handle_key(KeyCode::Char('о'), KeyModifiers::NONE); // physical j, unbound in raw
+        assert_eq!(state.cursor, 0);
+        state.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(state.cursor, 1);
     }
 
     #[test]
