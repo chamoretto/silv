@@ -20,6 +20,7 @@ target/
 
 /.*
 !.cargo
+!.githooks
 !.github
 !.github/**
 !.dockerignore
