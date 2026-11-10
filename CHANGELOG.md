@@ -9,11 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [Unreleased]
+## [0.1.3] - 2026-11-10
 
 ### Fixed
 
-- *(tui)* Key tokens inherit the default foreground on their background
+- *(tui)* Key tokens inherit the default foreground on their background ([9442b87](https://github.com/chamoretto/silv/commit/9442b87962ca0a6b5ca99c92b72623b110b3a709))
 
 ## [0.1.2] - 2026-11-10
 
@@ -94,7 +94,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track Cargo.lock for reproducible release builds ([bd3434a](https://github.com/chamoretto/silv/commit/bd3434a420b6adddf60192c2a319d5e9bff9f6c4))
 
 
-[Unreleased]: https://github.com/chamoretto/silv/compare/...HEAD
+[Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/chamoretto/silv/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/chamoretto/silv/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/chamoretto/silv/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/chamoretto/silv/releases/tag/v0.1.0
