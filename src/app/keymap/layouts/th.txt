@@ -1,0 +1,45 @@
+# th: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from th(basic), reference us(basic) and pc(pc105), 42 pairs.
+"	W
+(	Z
+)	X
+?	M
+_	`
+ก	d
+ฆ	S
+ฉ	C
+ฌ	G
+ญ	P
+ฎ	E
+ฏ	D
+ฑ	R
+ณ	I
+ด	f
+ท	m
+ธ	T
+น	o
+ป	x
+ผ	z
+ฝ	/
+พ	r
+ฟ	a
+ย	p
+ร	i
+ฤ	A
+ฦ	?
+ศ	L
+ษ	K
+ส	l
+ห	s
+อ	v
+ฮ	V
+ฯ	O
+ะ	t
+า	k
+ำ	e
+เ	g
+แ	c
+โ	F
+ไ	w
+ๆ	q

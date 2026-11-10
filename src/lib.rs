@@ -17,6 +17,7 @@ use std::time::Instant;
 use clap::Parser;
 use miette::{Context, IntoDiagnostic, Result};
 
+use crate::app::keymap::KeyMap;
 use crate::cli::{Config, RunMode};
 use crate::data::LogStore;
 
@@ -26,6 +27,10 @@ pub fn run() -> Result<()> {
     let cli = cli::Cli::parse();
     let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
     config.validate().context("failed to start interactive mode")?;
+
+    if config.key_map_show {
+        return write_key_map(&config);
+    }
 
     let bundle = parse::input::read_inputs(&config)
         .with_context(|| format!("failed to read input from {}", config.sources_display()))?;
@@ -49,6 +54,19 @@ pub fn run() -> Result<()> {
             Ok(())
         },
     }
+}
+
+/// Prints the resolved key map, one `from<TAB>to` line per entry: the `--key-map-show` report.
+fn write_key_map(config: &Config) -> miette::Result<()> {
+    let map = KeyMap::resolve(&config.key_map);
+    let mut out = std::io::stdout();
+    writeln!(out, "platform: {}", app::keymap::PLATFORM).into_diagnostic()?;
+    writeln!(out, "key map: {}", map.origin()).into_diagnostic()?;
+    writeln!(out, "entries: {}", map.len()).into_diagnostic()?;
+    for (from, to) in map.entries() {
+        writeln!(out, "{from}\t{to}").into_diagnostic()?;
+    }
+    Ok(())
 }
 
 fn warn_about_limits(store: &LogStore, config: &Config) {

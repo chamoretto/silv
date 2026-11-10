@@ -1,0 +1,46 @@
+# ru-phonetic: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from ru(phonetic_winkeys), reference us(basic) and pc(pc105), 43 pairs.
+Б	B
+Г	G
+Д	D
+Е	E
+Ж	V
+И	I
+Й	J
+К	K
+Л	L
+М	M
+Н	N
+О	O
+П	P
+Р	R
+С	S
+Т	T
+У	U
+Ф	F
+Х	X
+Ц	C
+Ч	H
+б	b
+г	g
+д	d
+е	e
+ж	v
+и	i
+й	j
+к	k
+л	l
+м	m
+н	n
+о	o
+п	p
+р	r
+с	s
+т	t
+у	u
+ф	f
+х	x
+ц	c
+ч	h
+ю	`

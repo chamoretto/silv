@@ -1,0 +1,6 @@
+# br: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from br(abnt2), reference us(basic) and pc(pc105), 3 pairs.
+'	`
+:	?
+;	/

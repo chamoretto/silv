@@ -1,0 +1,31 @@
+# us-norman: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from us(norman), reference us(basic) and pc(pc105), 28 pairs.
+:	P
+;	p
+D	E
+E	D
+F	R
+I	K
+J	Y
+K	T
+L	O
+N	J
+O	L
+P	N
+R	I
+T	F
+Y	H
+d	e
+e	d
+f	r
+i	k
+j	y
+k	t
+l	o
+n	j
+o	l
+p	n
+r	i
+t	f
+y	h

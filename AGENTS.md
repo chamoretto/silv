@@ -61,3 +61,26 @@ Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 Save useful commands and things, write skills, expand this file and others.
 Skills directory - `.opencode/skills`. Doc - https://opencode.ai/docs/skills/.
+
+## Useful commands
+
+Cross check the macOS build from Windows (no linking, FFI declarations included):
+
+```powershell
+rustup target add aarch64-apple-darwin
+cargo check --target aarch64-apple-darwin --all-targets
+```
+
+Unix code paths (xkb layout detection, its tests) run under WSL, cargo comes from the login shell:
+
+```powershell
+wsl -d Ubuntu-24.04 bash -lc "cd /mnt/c/Users/George/RustroverProjects/silv && cargo test --lib"
+```
+
+Regenerate the shipped xkb keymap tables (needs Linux xkb data, run it in WSL):
+
+```powershell
+wsl -d Ubuntu-24.04 bash -lc "cd /mnt/c/Users/George/RustroverProjects/silv && python3 scripts/gen-keymap-tables.py"
+```
+
+Check what the layout probing found on the current machine: `silv --key-map-show`.

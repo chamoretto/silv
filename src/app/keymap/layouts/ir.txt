@@ -1,0 +1,44 @@
+# ir: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from ir(pes), reference us(basic) and pc(pc105), 41 pairs.
+[	P
+]	O
+«	L
+»	K
+ק	i
+ء	M
+آ	H
+أ	G
+ؤ	A
+إ	F
+ئ	S
+ا	h
+ب	f
+ة	J
+ت	j
+ث	e
+ح	p
+خ	o
+د	n
+ذ	b
+ر	v
+ز	c
+س	s
+ش	a
+ص	w
+ض	q
+ط	x
+ظ	z
+ع	u
+غ	y
+ف	t
+ق	r
+ك	Z
+ل	g
+م	l
+ن	k
+ي	D
+ٓ	X
+پ	m
+ژ	C
+ی	d

@@ -1,0 +1,10 @@
+# hu: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from hu(basic), reference us(basic) and pc(pc105), 7 pairs.
+-	/
+0	`
+Y	Z
+Z	Y
+_	?
+y	z
+z	y

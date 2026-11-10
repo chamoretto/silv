@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(tui)* Map keyboard layouts to QWERTY bindings on every platform
+
 ### Fixed
 
 - *(tui)* Match key bindings on the physical QWERTY key for non-Latin layouts

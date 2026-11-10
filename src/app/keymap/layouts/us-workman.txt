@@ -1,0 +1,43 @@
+# us-workman: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from us(workman), reference us(basic) and pc(pc105), 40 pairs.
+:	P
+;	p
+B	T
+C	V
+D	W
+E	K
+F	U
+H	D
+J	Y
+K	N
+L	M
+M	C
+N	J
+O	L
+P	O
+R	E
+T	F
+U	I
+V	B
+W	R
+Y	H
+b	t
+c	v
+d	w
+e	k
+f	u
+h	d
+j	y
+k	n
+l	m
+m	c
+n	j
+o	l
+p	o
+r	e
+t	f
+u	i
+v	b
+w	r
+y	h

@@ -41,6 +41,12 @@ serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] 
 thiserror = "=2.0.21"
 unicode-width = "=0.2.3"
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "=0.61.2", default-features = false, features = [
+    "Win32_Foundation",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
 [dev-dependencies]
 serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] }
 

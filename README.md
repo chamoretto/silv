@@ -155,10 +155,24 @@ Mouse        click row = detail, click header = drag mode, wheel = scroll
 In the record detail overlay: `a` toggle column, `f`/`F` eq/neq filter from a value, `~` contains,
 `e`/`E` exists/missing, `v` toggle JSON, `Enter` field action menu, `Esc` close.
 
-Bindings are matched on the physical QWERTY key, so a Russian (and the shared Ukrainian) layout
-works: `ф` acts as `a`, `о` as `j`, `.` as `/`, `Ь` as `M`. Text entry keeps the typed characters,
-so searches and filters can contain Cyrillic. `--key-map raw` matches the typed character instead
-(for layouts the table does not cover, where the Latin layout is used for bindings).
+Bindings are matched on the physical QWERTY key, so non-Latin layouts work: on a Russian layout `ф` acts as `a`,
+`о` as `j`, `.` as `/`, `Ь` as `M`. Text entry keeps the typed characters, so searches and filters can contain
+Cyrillic. The map of the active layout comes from the platform:
+
+- Windows: user32 translates every virtual key with the active layout (`MapVirtualKeyEx` + `ToUnicodeEx`), so any
+  installed layout works, dead-key layouts included.
+- macOS: the current layout and the ASCII-capable one are read through the Text Input Source API
+  (`UCKeyTranslate`), so any layout works, Dvorak and Colemak included.
+- Linux and other unix: a terminal app cannot ask, so SILV ships 46 Xkb layout tables (Cyrillic, Greek, Arabic,
+  Hebrew, Thai, plus the Dvorak, Colemak, Workman and Norman forms of QWERTY) and picks one from
+  `XKB_DEFAULT_LAYOUT`, `XKBLAYOUT` or `XKB_LAYOUT`.
+- A built-in Russian/Ukrainian table covers the platforms where probing finds nothing.
+
+A layout switch mid-session is picked up when a key arrives unmapped (a few probes per run).
+`--key-map <mode>` overrides the choice: `auto` (the platform, the default), a layout name (`ru`, `de`,
+`us-dvorak`, ...; the error of an unknown name lists them), `file:<path>` with `<from><TAB><to>` lines, `raw`
+(bindings follow the typed character, which suits Latin layouts). `--key-map-show` prints the resolved map, where
+it came from and every pair.
 
 ## Colors and output
 

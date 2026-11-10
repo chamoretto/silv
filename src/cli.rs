@@ -87,13 +87,53 @@ pub enum MouseMode {
     Disable,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyMapMode {
-    /// Match bindings on the physical QWERTY key, so non-Latin layouts (Russian) work.
-    #[default]
+    /// Probe the system layout and bind keys to the QWERTY position of the same key.
     Auto,
-    /// Match bindings on the typed character, so bindings need a Latin layout.
+    /// Bind the typed character, so bindings need a Latin layout.
     Raw,
+    /// A shipped layout table picked by name.
+    Layout(String),
+    /// A user supplied table file.
+    File(PathBuf),
+}
+
+impl std::fmt::Display for KeyMapMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Auto => f.write_str("auto"),
+            Self::Raw => f.write_str("raw"),
+            Self::Layout(name) => f.write_str(name),
+            Self::File(path) => write!(f, "file:{}", path.display()),
+        }
+    }
+}
+
+/// Parses `--key-map`: a mode, a shipped layout name, or `file:<path>`.
+pub fn parse_key_map_mode(input: &str) -> std::result::Result<KeyMapMode, String> {
+    let token = input.trim();
+    let lowered = token.to_ascii_lowercase();
+    if lowered == "auto" {
+        return Ok(KeyMapMode::Auto);
+    }
+    if matches!(lowered.as_str(), "raw" | "off" | "none") {
+        return Ok(KeyMapMode::Raw);
+    }
+    if let Some(path) = token.strip_prefix("file:") {
+        if path.is_empty() {
+            return Err("expected a path after `file:`".to_owned());
+        }
+        return Ok(KeyMapMode::File(PathBuf::from(path)));
+    }
+    let names = crate::app::keymap::layout_names();
+    if names.iter().any(|name| name == &lowered) {
+        return Ok(KeyMapMode::Layout(lowered));
+    }
+    if token.contains(['/', '\\', '.']) {
+        return Ok(KeyMapMode::File(PathBuf::from(token)));
+    }
+    Err(format!("unknown key map `{token}`: use auto, raw, a layout name ({}), or file:<path>", names.join(", ")))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
@@ -346,9 +386,13 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "auto")]
     pub mouse: MouseMode,
 
-    /// Key bindings in interactive mode: auto matches the physical QWERTY key so non-Latin layouts (Russian) work, raw matches the typed character
-    #[arg(long, value_enum, default_value = "auto")]
+    /// Key bindings in interactive mode: auto binds the QWERTY position of the key (non-Latin layouts work), raw binds the typed character, a name picks a shipped table, file: adds your own
+    #[arg(long, value_name = "MODE", default_value = "auto", value_parser = parse_key_map_mode)]
     pub key_map: KeyMapMode,
+
+    /// Print the resolved key map (what auto found for the current layout) and exit
+    #[arg(long)]
+    pub key_map_show: bool,
 
     /// Print parse and record counts to stderr
     #[arg(long)]
@@ -389,6 +433,7 @@ pub struct Config {
     pub color_enabled: bool,
     pub mouse: MouseMode,
     pub key_map: KeyMapMode,
+    pub key_map_show: bool,
     pub stats: bool,
     pub verbose: u8,
     pub quiet: bool,
@@ -426,6 +471,7 @@ impl Default for Config {
             color_enabled: false,
             mouse: MouseMode::Auto,
             key_map: KeyMapMode::Auto,
+            key_map_show: false,
             stats: false,
             verbose: 0,
             quiet: false,
@@ -492,7 +538,8 @@ impl Config {
             color,
             color_enabled,
             mouse: cli.mouse,
-            key_map: cli.key_map,
+            key_map: validate_key_map(cli.key_map.clone())?,
+            key_map_show: cli.key_map_show,
             stats: cli.stats,
             verbose: cli.verbose,
             quiet: cli.quiet,
@@ -542,6 +589,14 @@ impl Config {
             .collect::<Vec<_>>()
             .join(", ")
     }
+}
+
+/// Reads a `file:` key map at startup, so a bad path or a malformed table fails before the TUI opens.
+fn validate_key_map(mode: KeyMapMode) -> Result<KeyMapMode> {
+    if let KeyMapMode::File(path) = &mode {
+        crate::app::keymap::KeyMap::from_file(path)?;
+    }
+    Ok(mode)
 }
 
 fn resolve_mode(cli: &Cli) -> RunMode {
