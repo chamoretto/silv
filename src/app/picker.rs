@@ -16,6 +16,7 @@ use ratatui::widgets::Table;
 use ratatui::widgets::TableState;
 
 use crate::app::state::PickerState;
+use crate::app::ui::highlight_label;
 use crate::render::text::truncate;
 
 /// Draws the picker inside `area` (already cleared by the caller).
@@ -37,6 +38,7 @@ pub fn draw(frame: &mut Frame, picker: &PickerState, area: Rect, _enabled: bool)
     );
 
     let visible = usize::from(rects[1].height).max(1);
+    let needle = picker.input.text().to_ascii_lowercase();
     let scroll = if picker.cursor >= visible {
         picker.cursor - visible + 1
     } else {
@@ -53,8 +55,10 @@ pub fn draw(frame: &mut Frame, picker: &PickerState, area: Rect, _enabled: bool)
             let selected = position == picker.cursor;
             let marker = if field.selected { "[x] " } else { "[ ] " };
             let label = truncate(&field.label, 34);
+            let mut text = vec![Span::raw(marker.to_owned())];
+            text.extend(highlight_label(&label, &needle));
             Row::new(vec![
-                TuiCell::from(format!("{marker}{label}")).style(Style::default().add_modifier(if selected {
+                TuiCell::from(Line::from(text)).style(Style::default().add_modifier(if selected {
                     Modifier::REVERSED
                 } else {
                     Modifier::empty()

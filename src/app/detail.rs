@@ -153,7 +153,7 @@ fn draw_menu(frame: &mut Frame, detail: &DetailState, area: Rect) {
     let cursor = detail.menu.unwrap_or(0);
     let items: Vec<ListItem> = MenuAction::ALL
         .iter()
-        .map(|action| ListItem::new(Line::from(Span::raw(action.label()))))
+        .map(|action| ListItem::new(Line::from(Span::styled(action.label().to_owned(), action.style().ratatui()))))
         .collect();
     let mut list_state = ListState::default();
     list_state.select(Some(cursor.min(items.len().saturating_sub(1))));

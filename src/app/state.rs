@@ -40,6 +40,13 @@ pub enum Focus {
     Rows,
 }
 
+/// Header focus sub-mode: navigate between columns, or reorder the focused one.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum HeaderMode {
+    Navigate,
+    Drag,
+}
+
 impl Focus {
     pub const ORDER: [Self; 5] = [
         Self::Search,
@@ -174,6 +181,14 @@ impl MenuAction {
             Self::NotExists => "filter: field missing",
         }
     }
+
+    pub const fn style(self) -> crate::render::color::Sg {
+        match self {
+            Self::ToggleColumn => crate::render::color::Sg::Default,
+            Self::FilterEq | Self::FilterContains | Self::Exists => crate::render::color::Sg::OpPositive,
+            Self::FilterNeq | Self::NotExists => crate::render::color::Sg::OpNegative,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +232,7 @@ pub struct AppState {
     pub search_input: Editor,
     pub filter_input: Editor,
     pub focus: Focus,
+    pub header_mode: HeaderMode,
     pub cursor: usize,
     pub header_cursor: usize,
     pub filter_cursor: usize,
@@ -228,9 +244,10 @@ pub struct AppState {
     pub help: bool,
     pub message: Option<String>,
     pub status: String,
+    pub sort_marks: Vec<(String, SortDir)>,
     pub areas: Areas,
     pub header_cells: Vec<(u16, u16, usize)>,
-    pub chip_cells: Vec<(u16, u16, usize)>,
+    pub chip_cells: Vec<(u16, u16, usize, u16)>,
     pub regexes: Vec<regex::Regex>,
     pub dirty: bool,
     pub quit: bool,
@@ -256,6 +273,7 @@ impl AppState {
             search_input,
             filter_input: Editor::new(),
             focus: Focus::Rows,
+            header_mode: HeaderMode::Navigate,
             cursor: 0,
             header_cursor: 0,
             filter_cursor: 0,
@@ -267,6 +285,7 @@ impl AppState {
             help: false,
             message: None,
             status: String::new(),
+            sort_marks: Vec::new(),
             areas: Areas::default(),
             header_cells: Vec::new(),
             chip_cells: Vec::new(),
@@ -312,23 +331,21 @@ impl AppState {
     fn update_status(&mut self) {
         let shown = self.view.len();
         let total = self.store.len();
-        let marks = self
+        self.sort_marks = self
             .sorts
             .iter()
-            .map(|spec| format!("{}{}", spec.field, spec.dir.marker()))
-            .collect::<Vec<_>>()
-            .join(",");
+            .map(|spec| (spec.field.to_string(), spec.dir))
+            .collect();
+        let focus_label = if self.focus == Focus::Header && self.header_mode == HeaderMode::Drag {
+            "fields (drag)"
+        } else {
+            self.focus.label()
+        };
         self.status = format!(
-            "rows {shown}/{} of {total} | fields {} | focus {} | {}{}",
+            "rows {shown}/{} of {total} | fields {} | focus {focus_label} | {}",
             self.view.matched,
             self.columns.len(),
-            self.focus.label(),
             self.config.render,
-            if marks.is_empty() {
-                String::new()
-            } else {
-                format!(" | sort {marks}")
-            }
         );
     }
 
@@ -680,6 +697,42 @@ impl AppState {
             .iter()
             .find(|spec| Column::from_path(&spec.field) == *column)
             .map(|spec| spec.dir)
+    }
+
+    pub fn enter_column_drag(&mut self) {
+        if self.header_mode == HeaderMode::Drag {
+            return;
+        }
+        self.header_mode = HeaderMode::Drag;
+        self.message = Some("column drag: Left/Right move column, Enter/click sorts, Space/Esc leaves".to_owned());
+        self.update_status();
+        self.dirty = true;
+    }
+
+    pub fn leave_column_drag(&mut self) {
+        if self.header_mode == HeaderMode::Navigate {
+            return;
+        }
+        self.header_mode = HeaderMode::Navigate;
+        self.update_status();
+        self.dirty = true;
+    }
+
+    /// Reorders the focused column by `delta` positions; the cursor follows the column.
+    pub fn move_column(&mut self, delta: isize) {
+        if self.columns.is_empty() {
+            return;
+        }
+        let from = self.header_cursor;
+        let to = (from as isize + delta).clamp(0, self.columns.len() as isize - 1) as usize;
+        if to == from {
+            return;
+        }
+        let label = self.columns[from].label();
+        self.columns.swap(from, to);
+        self.header_cursor = to;
+        self.message = Some(format!("column moved: {label} -> {}", to + 1));
+        self.dirty = true;
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
@@ -1173,14 +1226,33 @@ impl AppState {
     }
 
     fn handle_header_key(&mut self, code: KeyCode) {
+        let dragging = self.header_mode == HeaderMode::Drag;
         match code {
-            KeyCode::Left | KeyCode::Char('h') => self.header_cursor = self.header_cursor.saturating_sub(1),
+            KeyCode::Left | KeyCode::Char('h') => {
+                if dragging {
+                    self.move_column(-1);
+                } else {
+                    self.header_cursor = self.header_cursor.saturating_sub(1);
+                }
+            },
             KeyCode::Right | KeyCode::Char('l') => {
-                self.header_cursor = (self.header_cursor + 1).min(self.columns.len().saturating_sub(1));
+                if dragging {
+                    self.move_column(1);
+                } else {
+                    self.header_cursor = (self.header_cursor + 1).min(self.columns.len().saturating_sub(1));
+                }
             },
             KeyCode::Enter | KeyCode::Char('s') => {
                 if let Some(column) = self.focused_column().cloned() {
                     self.cycle_sort(&column);
+                }
+                self.leave_column_drag();
+            },
+            KeyCode::Char(' ') => {
+                if dragging {
+                    self.leave_column_drag();
+                } else {
+                    self.enter_column_drag();
                 }
             },
             KeyCode::Char('d') => {
@@ -1191,7 +1263,13 @@ impl AppState {
                     self.update_status();
                 }
             },
-            KeyCode::Esc => self.focus = Focus::Rows,
+            KeyCode::Esc => {
+                if dragging {
+                    self.leave_column_drag();
+                } else {
+                    self.focus = Focus::Rows;
+                }
+            },
             KeyCode::Tab => self.cycle_focus(1),
             KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Down | KeyCode::Char('j') => self.focus = Focus::Rows,
@@ -1375,10 +1453,11 @@ impl AppState {
         }
         if contains(areas.chips, row) {
             self.focus = Focus::FilterChips;
-            if let Some((_, _, index)) = self
+            let row_offset = row.saturating_sub(areas.chips.y);
+            if let Some((_, _, index, _)) = self
                 .chip_cells
                 .iter()
-                .find(|(start, end, _)| *start <= column && column <= *end)
+                .find(|(start, end, _, cell_row)| *cell_row == row_offset && *start <= column && column <= *end)
             {
                 self.filter_cursor = *index;
             }
@@ -1393,8 +1472,15 @@ impl AppState {
                     .find(|(start, end, _)| *start <= column && column <= *end)
                 {
                     self.header_cursor = *index;
-                    if let Some(column) = self.focused_column().cloned() {
-                        self.cycle_sort(&column);
+                    match self.header_mode {
+                        // First click picks the column and enters drag; no sort change.
+                        HeaderMode::Navigate => self.enter_column_drag(),
+                        HeaderMode::Drag => {
+                            if let Some(column) = self.focused_column().cloned() {
+                                self.cycle_sort(&column);
+                            }
+                            self.leave_column_drag();
+                        },
                     }
                 }
                 return;
@@ -1666,6 +1752,98 @@ mod tests {
         assert!(state.columns_contain(&path));
         state.toggle_column(path.clone());
         assert!(!state.columns_contain(&path));
+    }
+
+    fn columns_of(state: &AppState) -> Vec<String> {
+        state.columns.iter().map(|column| column.label()).collect()
+    }
+
+    fn with_columns(state: &mut AppState, names: &[&str]) {
+        state.columns.clear();
+        for name in names {
+            state.columns.push(Column::Field(FieldPath::parse(name).expect("path")));
+        }
+        state.header_cursor = 0;
+    }
+
+    #[test]
+    fn move_column_swaps_and_follows_cursor() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        with_columns(&mut state, &["a", "b", "c"]);
+        state.move_column(1);
+        assert_eq!(columns_of(&state), ["b", "a", "c"]);
+        assert_eq!(state.header_cursor, 1);
+        state.move_column(-1);
+        assert_eq!(columns_of(&state), ["a", "b", "c"]);
+        assert_eq!(state.header_cursor, 0);
+        state.move_column(-1);
+        assert_eq!(columns_of(&state), ["a", "b", "c"]);
+    }
+
+    #[test]
+    fn header_drag_flow_moves_columns_then_sorts() {
+        let mut state = state_of(&["{\"a\":2}", "{\"a\":1}"]);
+        with_columns(&mut state, &["a", "b"]);
+        state.focus = Focus::Header;
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(state.header_mode, HeaderMode::Drag);
+        assert!(state.status.contains("fields (drag)"));
+        state.handle_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(columns_of(&state), ["b", "a"]);
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(state.header_mode, HeaderMode::Navigate);
+        assert_eq!(state.sorts.len(), 1);
+        assert_eq!(state.sorts[0].field, FieldPath::parse("a").expect("path"));
+    }
+
+    #[test]
+    fn header_click_enters_drag_and_second_click_sorts() {
+        use ratatui::crossterm::event::MouseButton;
+        let mut state = state_of(&["{\"a\":2}", "{\"a\":1}"]);
+        with_columns(&mut state, &["a"]);
+        state.areas.rows = Rect::new(0, 2, 40, 10);
+        state.header_cells.push((0, 8, 0));
+        let click = MouseEventKind::Down(MouseButton::Left);
+        state.handle_mouse(click, 1, 2);
+        assert_eq!(state.focus, Focus::Header);
+        assert_eq!(state.header_mode, HeaderMode::Drag);
+        assert!(state.sorts.is_empty());
+        state.handle_mouse(click, 1, 2);
+        assert_eq!(state.sorts.len(), 1);
+        assert_eq!(state.header_mode, HeaderMode::Navigate);
+    }
+
+    #[test]
+    fn chip_click_maps_row_offset_to_filter_index() {
+        use ratatui::crossterm::event::MouseButton;
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        let first =
+            crate::filter::build_leaf("level", LeafOp::Eq, Some("INFO"), &state.filter_context()).expect("leaf");
+        let second =
+            crate::filter::build_leaf("level", LeafOp::Neq, Some("INFO"), &state.filter_context()).expect("leaf");
+        state.add_filter(first);
+        state.add_filter(second);
+        state.focus = Focus::Rows;
+        state.filter_cursor = 0;
+        state.areas.chips = Rect::new(0, 1, 40, 2);
+        state.chip_cells.push((0, 10, 0, 1));
+        state.chip_cells.push((11, 22, 1, 1));
+        let click = MouseEventKind::Down(MouseButton::Left);
+        state.handle_mouse(click, 15, 1);
+        assert_eq!(state.filter_cursor, 0);
+        state.handle_mouse(click, 15, 2);
+        assert_eq!(state.filter_cursor, 1);
+    }
+
+    #[test]
+    fn status_sort_marks_are_structured() {
+        let mut state = state_of(&["{\"a\":2}"]);
+        let column = Column::Field(FieldPath::parse("a").expect("path"));
+        state.columns.push(column.clone());
+        state.cycle_sort(&column);
+        assert_eq!(state.sort_marks, vec![("a".to_owned(), SortDir::Asc)]);
+        assert!(!state.status.contains("sort"));
+        assert!(state.status.contains("rows 1/1 of 1"));
     }
 
     #[test]
