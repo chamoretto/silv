@@ -88,6 +88,15 @@ pub enum MouseMode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
+pub enum KeyMapMode {
+    /// Match bindings on the physical QWERTY key, so non-Latin layouts (Russian) work.
+    #[default]
+    Auto,
+    /// Match bindings on the typed character, so bindings need a Latin layout.
+    Raw,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
 pub enum FormatArg {
     #[default]
     Auto,
@@ -337,6 +346,10 @@ pub struct Cli {
     #[arg(long, value_enum, default_value = "auto")]
     pub mouse: MouseMode,
 
+    /// Key bindings in interactive mode: auto matches the physical QWERTY key so non-Latin layouts (Russian) work, raw matches the typed character
+    #[arg(long, value_enum, default_value = "auto")]
+    pub key_map: KeyMapMode,
+
     /// Print parse and record counts to stderr
     #[arg(long)]
     pub stats: bool,
@@ -375,6 +388,7 @@ pub struct Config {
     pub color: ColorChoice,
     pub color_enabled: bool,
     pub mouse: MouseMode,
+    pub key_map: KeyMapMode,
     pub stats: bool,
     pub verbose: u8,
     pub quiet: bool,
@@ -411,6 +425,7 @@ impl Default for Config {
             color: ColorChoice::Auto,
             color_enabled: false,
             mouse: MouseMode::Auto,
+            key_map: KeyMapMode::Auto,
             stats: false,
             verbose: 0,
             quiet: false,
@@ -477,6 +492,7 @@ impl Config {
             color,
             color_enabled,
             mouse: cli.mouse,
+            key_map: cli.key_map,
             stats: cli.stats,
             verbose: cli.verbose,
             quiet: cli.quiet,

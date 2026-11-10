@@ -3,6 +3,7 @@
 pub mod detail;
 pub mod help;
 pub mod input;
+pub mod keymap;
 pub mod picker;
 pub mod seqfilter;
 pub mod state;

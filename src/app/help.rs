@@ -9,7 +9,7 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 24] = [
+const LINES: [&str; 25] = [
     "SILV - simple interactive log viewer",
     "",
     "Layout: search bar, filter chips, field header, rows, prompt line, status. The top stays visible",
@@ -28,6 +28,7 @@ const LINES: [&str; 24] = [
     "  Space (row)  pick value, Enter =    filter by that value (asks the operator); Esc leaves the mode",
     "  Mouse        click row = detail, click header = drag mode, wheel = scroll",
     "  ?            this help               q, Ctrl-C    quit",
+    "  Layout       keys map to QWERTY positions (Russian works), text entry keeps your characters",
     "",
     "Filter grammar: field=pattern, field!=pattern, field~text, field!~text, field^ (exists), field!^ (missing),",
     "combined with not / and / or and parentheses. Patterns are anchored globs; --glob-anywhere wraps them.",

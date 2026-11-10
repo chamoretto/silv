@@ -155,6 +155,11 @@ Mouse        click row = detail, click header = drag mode, wheel = scroll
 In the record detail overlay: `a` toggle column, `f`/`F` eq/neq filter from a value, `~` contains,
 `e`/`E` exists/missing, `v` toggle JSON, `Enter` field action menu, `Esc` close.
 
+Bindings are matched on the physical QWERTY key, so a Russian (and the shared Ukrainian) layout
+works: `ф` acts as `a`, `о` as `j`, `.` as `/`, `Ь` as `M`. Text entry keeps the typed characters,
+so searches and filters can contain Cyrillic. `--key-map raw` matches the typed character instead
+(for layouts the table does not cover, where the Latin layout is used for bindings).
+
 ## Colors and output
 
 - Colors follow the terminal: auto when stdout is a TTY, disabled by `NO_COLOR`, `TERM=dumb`,
