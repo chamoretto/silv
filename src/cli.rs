@@ -433,7 +433,7 @@ impl Config {
         let color = if cli.no_color { ColorChoice::Never } else { cli.color };
         let color_enabled = resolve_color(color);
 
-        let mut config = Self {
+        let config = Self {
             mode: resolve_mode(cli),
             files: cli.files.clone(),
             include: cli.include.clone(),
@@ -469,11 +469,11 @@ impl Config {
             plain_separator: cli.plain_separator.clone(),
             aliases,
         };
-        config.validate()?;
         Ok(config)
     }
 
-    fn validate(&mut self) -> Result<()> {
+    /// Rejects configurations that cannot run (e.g. interactive mode without terminals).
+    pub fn validate(&mut self) -> Result<()> {
         if self.mode == RunMode::Interactive && !both_terminals() {
             return Err(SilvError::NotATerminal.into());
         }
