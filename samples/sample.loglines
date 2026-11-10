@@ -1,0 +1,10 @@
+2025-11-09 07:15:01.120 | INFO | worker started host=web1 pid=42 topic="orders in"
+2025-11-09 07:15:02.001 | DEBUG | fetch initiated topic=orders partition=0 offset=1204 lag=17
+2025-11-09 07:15:02.480 | WARN | socket close in activity, reason Connection disconnected broker=10.0.4.11:9092
+2025-11-09 07:15:03.100 | INFO | order accepted order_id=A-1021 amount=249.99 tags=["express","priority"]
+2025-11-09 07:15:03.250 | ERROR | charge failed order_id=A-1021 code=card_declined status=402
+2025-11-09 07:15:04.000 | INFO | probe ok uptime_s=3600 rss_mb=128.5 leader=true
+2025-11-09 07:15:06.330 | FATAL | webhook handler panic order_id=A-1021
+2025-11-09 07:15:08.900 | WARNING | auto offset commit delayed topic=orders group=billing delay_ms=950
+2025-11-09 07:15:09.410 | INFO | warm completed keys=8123 empty=false
+2025-11-09 07:15:11.640 | INFO | refund queued order_id=A-1021 reason=charge_failed
