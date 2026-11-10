@@ -1,5 +1,6 @@
 Default branch: `main`. Keep the history readable: Conventional Commits
-(`feat:`, `fix:`, `docs:`, `test:`, `chore:`, ...), see `.ai/conventional-commits.md`.
+(`feat:`, `fix:`, `docs:`, `test:`, `chore:`, ...), see the
+[specification](https://www.conventionalcommits.org/en/v1.0.0/).
 
 ## Checks before opening a PR
 
