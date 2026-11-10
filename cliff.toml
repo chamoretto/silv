@@ -13,7 +13,9 @@ All notable changes to this project will be documented in this file.\n\
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\n\
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\
 \n\
-<!-- git-cliff: end of header -->\n
+<!-- git-cliff: end of header -->\n\
+\n\
+## [Unreleased]\n
 """
 # A Tera template to be rendered for each release in the changelog.
 # See https://keats.github.io/tera/#getting-started
@@ -31,10 +33,14 @@ body = """
             {{ commit.message | upper_first }}\
     {% endfor %}
 {% endfor %}
+
 """
 # A Tera template to be rendered after the last release: version reference links.
 footer = """
 
+{% if releases | length > 0 -%}
+    [Unreleased]: <REPO>/compare/{{ releases[0].version }}...HEAD
+{% endif -%}
 {% for release in releases -%}
     {% if release.version -%}
         {% if release.previous.version -%}
