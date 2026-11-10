@@ -27,6 +27,7 @@ use crate::app::help;
 use crate::app::picker;
 use crate::app::state::AppState;
 use crate::app::state::Focus;
+use crate::app::state::RowMode;
 use crate::app::state::WIZARD_OPS;
 use crate::app::state::WizardPhase;
 use crate::cli::RenderChoice;
@@ -42,16 +43,22 @@ use crate::render::table as table_layout;
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
 const CHIPS_HINT: &str = "F to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
+const CHIP_PROMPTS: &str = "filters: d/Backspace remove, Enter edit, Left/Right select, x clear all, F add, Esc rows";
 
 /// Renders the whole screen.
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
-    let chips_height: u16 = if state.filters.is_empty() { 1 } else { 2 };
+    let chips_height: u16 = match (state.filters.is_empty(), state.focus == Focus::FilterChips) {
+        (true, _) => 1,
+        (false, true) => 3,
+        (false, false) => 2,
+    };
     let rects = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(chips_height),
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(1),
         Constraint::Length(1),
     ])
     .split(area);
@@ -60,13 +67,15 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.areas.chips = rects[1];
     state.areas.filter = rects[2];
     state.areas.rows = rects[3];
-    state.areas.status = rects[4];
+    state.areas.prompts = rects[4];
+    state.areas.status = rects[5];
 
     draw_search(frame, state, rects[0]);
     draw_chips(frame, state, rects[1]);
     draw_filter_input(frame, state, rects[2]);
     draw_rows(frame, state, rects[3]);
-    draw_status(frame, state, rects[4]);
+    draw_prompts(frame, state, rects[4]);
+    draw_status(frame, state, rects[5]);
     draw_wizard_dropdown(frame, state, area);
 
     if let Some(picker) = state.picker.as_ref() {
@@ -167,7 +176,19 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
         x = x.saturating_add(length);
     }
     lines.push(Line::from(spans));
+    if state.focus == Focus::FilterChips {
+        lines.push(Line::from(Span::styled(CHIP_PROMPTS, Style::default().fg(Color::DarkGray))));
+    }
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// The mode-specific control keys, on the line above the status bar.
+fn draw_prompts(frame: &mut Frame, state: &AppState, area: Rect) {
+    let text = state.prompts_text();
+    if text.is_empty() {
+        return;
+    }
+    frame.render_widget(Paragraph::new(Line::from(Span::styled(text, Style::default().fg(Color::DarkGray)))), area);
 }
 
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
@@ -407,11 +428,25 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let mut table_state = TableState::default();
     table_state.select(Some(state.cursor.saturating_sub(start)));
 
+    let picking = state.focus == Focus::Rows && state.row_mode == RowMode::Pick;
     let rows: Vec<Row> = rows_cells
         .iter()
-        .map(|cells| {
+        .enumerate()
+        .map(|(offset, cells)| {
             let highlighted = highlight(cells.clone(), &state.regexes);
-            Row::new(highlighted.iter().map(to_tui_cell))
+            let mark_pick = picking && start + offset == state.cursor;
+            let tui_cells: Vec<TuiCell<'static>> = highlighted
+                .iter()
+                .enumerate()
+                .map(|(position, cell)| {
+                    let mut style = cell.style.ratatui();
+                    if mark_pick && position == state.pick_cursor {
+                        style = style.bg(Color::DarkGray);
+                    }
+                    TuiCell::from(cell.text.clone()).style(style)
+                })
+                .collect();
+            Row::new(tui_cells)
         })
         .collect();
 

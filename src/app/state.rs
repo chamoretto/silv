@@ -47,6 +47,13 @@ pub enum HeaderMode {
     Drag,
 }
 
+/// Row focus sub-mode: plain navigation, or picking a cell value to filter by.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RowMode {
+    Normal,
+    Pick,
+}
+
 impl Focus {
     pub const ORDER: [Self; 5] = [
         Self::Search,
@@ -74,6 +81,7 @@ pub struct Areas {
     pub chips: Rect,
     pub filter: Rect,
     pub rows: Rect,
+    pub prompts: Rect,
     pub status: Rect,
     pub dropdown: Rect,
 }
@@ -100,6 +108,8 @@ pub struct FilterWizard {
     pub op: Option<LeafOp>,
     pub matches: Vec<FieldCandidate>,
     pub cursor: usize,
+    /// Value pattern typed into the operator step (e.g. from the row value picker).
+    pub prefill: Option<String>,
 }
 
 /// One operator option of the builder's second step.
@@ -233,6 +243,8 @@ pub struct AppState {
     pub filter_input: Editor,
     pub focus: Focus,
     pub header_mode: HeaderMode,
+    pub row_mode: RowMode,
+    pub pick_cursor: usize,
     pub cursor: usize,
     pub header_cursor: usize,
     pub filter_cursor: usize,
@@ -274,6 +286,8 @@ impl AppState {
             filter_input: Editor::new(),
             focus: Focus::Rows,
             header_mode: HeaderMode::Navigate,
+            row_mode: RowMode::Normal,
+            pick_cursor: 0,
             cursor: 0,
             header_cursor: 0,
             filter_cursor: 0,
@@ -433,6 +447,7 @@ impl AppState {
             op: None,
             matches,
             cursor: 0,
+            prefill: None,
         });
         self.focus = Focus::FilterInput;
         self.dirty = true;
@@ -551,6 +566,9 @@ impl AppState {
             return;
         }
         self.filter_input.clear();
+        if let Some(prefill) = wizard.prefill.clone() {
+            self.filter_input.set(&prefill);
+        }
         if let Some(wizard) = self.wizard.as_mut() {
             wizard.op = Some(op);
             wizard.phase = WizardPhase::Pattern;
@@ -1278,6 +1296,7 @@ impl AppState {
     }
 
     fn handle_rows_key(&mut self, code: KeyCode) {
+        let picking = self.row_mode == RowMode::Pick;
         match code {
             KeyCode::Char('q') => self.quit(),
             KeyCode::Char('j') | KeyCode::Down => self.move_cursor(1),
@@ -1288,7 +1307,14 @@ impl AppState {
             KeyCode::Char('b') => self.page(-1, self.page_height()),
             KeyCode::Char('g') => self.go_first(),
             KeyCode::Char('G') => self.go_last(),
-            KeyCode::Enter => self.open_detail(),
+            KeyCode::Enter => {
+                if picking {
+                    self.pick_apply();
+                } else {
+                    self.open_detail();
+                }
+            },
+            KeyCode::Char(' ') => self.toggle_row_pick(),
             KeyCode::Char('s') => {
                 if let Some(column) = self.focused_column().cloned() {
                     self.cycle_sort(&column);
@@ -1307,10 +1333,24 @@ impl AppState {
             KeyCode::Char('x') => self.clear_search(),
             KeyCode::Char('d') => self.remove_filter(self.filter_cursor),
             KeyCode::Char('X') => self.clear_filters(),
-            KeyCode::Left => self.column_scroll = self.column_scroll.saturating_sub(1),
-            KeyCode::Right => self.column_scroll = (self.column_scroll + 1).min(self.columns.len().saturating_sub(1)),
+            KeyCode::Left => {
+                if picking {
+                    self.pick_cursor = self.pick_cursor.saturating_sub(1);
+                } else {
+                    self.column_scroll = self.column_scroll.saturating_sub(1);
+                }
+            },
+            KeyCode::Right => {
+                if picking {
+                    self.pick_cursor = (self.pick_cursor + 1).min(self.columns.len().saturating_sub(1));
+                } else {
+                    self.column_scroll = (self.column_scroll + 1).min(self.columns.len().saturating_sub(1));
+                }
+            },
             KeyCode::Esc => {
-                if !self.search.patterns.is_empty() {
+                if picking {
+                    self.row_mode = RowMode::Normal;
+                } else if !self.search.patterns.is_empty() {
                     self.clear_search();
                 } else if !self.filters.is_empty() {
                     self.focus = Focus::FilterChips;
@@ -1321,6 +1361,65 @@ impl AppState {
             KeyCode::Char('/') => self.focus = Focus::Search,
             KeyCode::Char('F') => self.open_filter_wizard(),
             _ => {},
+        }
+    }
+
+    /// Space on rows: toggle the value picker; Enter on a cell starts a filter on that value.
+    pub fn toggle_row_pick(&mut self) {
+        if self.row_mode == RowMode::Pick {
+            self.row_mode = RowMode::Normal;
+        } else if self.columns.is_empty() {
+            self.message = Some("pick value needs columns: press c to pick fields".to_owned());
+        } else {
+            self.row_mode = RowMode::Pick;
+            self.pick_cursor = self.header_cursor.min(self.columns.len() - 1);
+        }
+        self.dirty = true;
+    }
+
+    /// Opens the filter wizard on the operator step, field and value taken from the picked cell.
+    pub fn pick_apply(&mut self) {
+        let Some(column) = self.columns.get(self.pick_cursor).cloned() else {
+            return;
+        };
+        let Some(record) = self.current_record().cloned() else {
+            return;
+        };
+        let source = self.source_label(&record).to_owned();
+        let (value, _style) = cell_text(&record, &column, &source, &self.config);
+        let path = column_path(&column);
+        let probe = truncate_probe(&value);
+        self.row_mode = RowMode::Normal;
+        self.wizard = Some(FilterWizard {
+            phase: WizardPhase::Operator,
+            field: Some(path.clone()),
+            op: None,
+            matches: Vec::new(),
+            cursor: 0,
+            prefill: Some(probe.clone()),
+        });
+        self.filter_input.set(&path.to_string());
+        self.focus = Focus::FilterInput;
+        self.message = Some(format!("filter by value: {path} = {probe}, choose the operator"));
+        self.dirty = true;
+    }
+
+    /// Mode-aware control keys shown on the prompt line.
+    pub fn prompts_text(&self) -> &'static str {
+        match self.focus {
+            Focus::Header if self.header_mode == HeaderMode::Drag => {
+                "column drag: Left/Right move column, Enter/click sort (asc/desc/off), Space/Esc leave drag"
+            },
+            Focus::Header => {
+                "fields: Left/Right move, Space column drag, Enter/s sort (asc/desc/off), d remove column, Esc rows"
+            },
+            Focus::Rows if self.row_mode == RowMode::Pick => {
+                "pick value: Left/Right choose field, Enter filter by this value, Space/Esc leave"
+            },
+            Focus::Rows => {
+                "rows: Enter detail, Space pick value, j/k move, g/G first/last, / search, F filter, c fields"
+            },
+            _ => "",
         }
     }
 
@@ -1499,6 +1598,14 @@ impl AppState {
 
 fn contains(area: Rect, row: u16) -> bool {
     area.height > 0 && row >= area.top() && row < area.top() + area.height
+}
+
+/// The field path a column addresses; pseudo columns parse from their labels.
+fn column_path(column: &Column) -> FieldPath {
+    match column {
+        Column::Field(path) => path.clone(),
+        other => FieldPath::parse(&other.label()).unwrap_or_else(|_| FieldPath::from_key(&other.label())),
+    }
 }
 
 /// Probe used to build a filter from a field value; long values become a contains pattern.
@@ -1844,6 +1951,63 @@ mod tests {
         assert_eq!(state.sort_marks, vec![("a".to_owned(), SortDir::Asc)]);
         assert!(!state.status.contains("sort"));
         assert!(state.status.contains("rows 1/1 of 1"));
+    }
+
+    #[test]
+    fn pick_value_walks_into_operator_step_with_prefill() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        state.columns.clear();
+        state
+            .columns
+            .push(Column::Field(FieldPath::parse("level").expect("path")));
+        state.focus = Focus::Rows;
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(state.row_mode, RowMode::Pick);
+        assert!(state.prompts_text().contains("pick value"));
+        state.handle_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(state.pick_cursor, 0);
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(state.row_mode, RowMode::Normal);
+        assert!(
+            state
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Operator && w.prefill.is_some())
+        );
+        assert_eq!(state.focus, Focus::FilterInput);
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // Eq: the pattern step is prefilled
+        assert_eq!(state.filter_input.text(), "INFO");
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // commit
+        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.filters[0].to_string(), "level=INFO");
+        assert_eq!(state.view.len(), 1);
+    }
+
+    #[test]
+    fn pick_value_esc_leaves_the_mode() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.columns.clear();
+        state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
+        state.focus = Focus::Rows;
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert_eq!(state.row_mode, RowMode::Pick);
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(state.row_mode, RowMode::Normal);
+    }
+
+    #[test]
+    fn prompt_line_tracks_the_active_mode() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.columns.clear();
+        state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
+        state.focus = Focus::Rows;
+        assert!(state.prompts_text().contains("Space pick value"));
+        state.focus = Focus::Header;
+        assert!(state.prompts_text().contains("Space column drag"));
+        state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
+        assert!(state.prompts_text().contains("column drag"));
+        state.focus = Focus::Search;
+        assert!(state.prompts_text().is_empty());
     }
 
     #[test]

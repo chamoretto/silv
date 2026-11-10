@@ -9,10 +9,11 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 22] = [
+const LINES: [&str; 24] = [
     "SILV - simple interactive log viewer",
     "",
-    "Layout: search bar, filter chips, field header, rows, status. The top stays visible while scrolling.",
+    "Layout: search bar, filter chips, field header, rows, prompt line, status. The top stays visible",
+    "while scrolling. The prompt line shows the control keys of the mode you are in.",
     "Rows show columns when fields are selected, otherwise text in the format default (kv for JSON Lines,",
     "the source line for plain logs).",
     "",
@@ -24,6 +25,7 @@ const LINES: [&str; 22] = [
     "  v            cycle render mode       t m          toggle timestamp / message column",
     "  L r A        case, regex, scope      x X          clear search, clear all filters",
     "  Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort",
+    "  Space (row)  pick value, Enter =    filter by that value (asks the operator); Esc leaves the mode",
     "  Mouse        click row = detail, click header = drag mode, wheel = scroll",
     "  ?            this help               q, Ctrl-C    quit",
     "",
