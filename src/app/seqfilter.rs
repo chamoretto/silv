@@ -19,6 +19,7 @@ pub enum KeyAction {
 enum Phase {
     Idle,
     AfterBracket,
+    MHeader,
     X10Button,
     X10Position(u8),
     Sgr,
@@ -76,6 +77,10 @@ impl SequenceFilter {
                 self.phase = Phase::Idle;
                 Some(KeyAction::Key(KeyCode::Char('['), KeyModifiers::NONE))
             },
+            Phase::MHeader => {
+                self.phase = Phase::Idle;
+                Some(KeyAction::Key(KeyCode::Char('M'), KeyModifiers::NONE))
+            },
             _ => {
                 self.reset();
                 None
@@ -93,13 +98,30 @@ impl SequenceFilter {
             _ => return self.on_non_char(code, modifiers),
         };
         match self.phase {
-            Phase::Idle => {
-                if ch == '[' {
+            Phase::Idle => match ch {
+                '[' => {
                     self.phase = Phase::AfterBracket;
                     None
-                } else {
-                    Some(KeyAction::Key(code, modifiers))
+                },
+                'M' => {
+                    // ConEmu/winpty sends legacy mouse records as "ESC M b x y";
+                    // crossterm eats the ESC and delivers M, button, x, y as keys.
+                    self.phase = Phase::MHeader;
+                    None
+                },
+                _ => Some(KeyAction::Key(code, modifiers)),
+            },
+            Phase::MHeader => {
+                let wheel = x10_wheel(u32::from(ch));
+                // Only plausible mouse bytes continue the burst; anything else is
+                // real text ("My..."), so both keys are passed through.
+                if wheel.is_none() && ch != 'C' {
+                    self.phase = Phase::Idle;
+                    self.out = Some(KeyAction::Key(code, KeyModifiers::NONE));
+                    return Some(KeyAction::Key(KeyCode::Char('M'), KeyModifiers::NONE));
                 }
+                self.phase = Phase::X10Position(2);
+                wheel.map(KeyAction::Wheel)
             },
             Phase::AfterBracket => match ch {
                 'M' => {
@@ -123,7 +145,7 @@ impl SequenceFilter {
             },
             Phase::X10Button => {
                 self.phase = Phase::X10Position(2);
-                x10_wheel(ch).map(KeyAction::Wheel)
+                x10_wheel(u32::from(ch)).map(KeyAction::Wheel)
             },
             Phase::X10Position(remaining) => {
                 // Back-to-back wheel bursts touch: the y byte of one click equals the `[`
@@ -171,10 +193,14 @@ impl SequenceFilter {
     fn on_non_char(&mut self, code: KeyCode, modifiers: KeyModifiers) -> Option<KeyAction> {
         match self.phase {
             Phase::Idle => Some(KeyAction::Key(code, modifiers)),
-            Phase::AfterBracket => {
+            Phase::AfterBracket | Phase::MHeader => {
+                let opener = match self.phase {
+                    Phase::MHeader => KeyCode::Char('M'),
+                    _ => KeyCode::Char('['),
+                };
                 self.phase = Phase::Idle;
                 self.out = Some(KeyAction::Key(code, modifiers));
-                Some(KeyAction::Key(KeyCode::Char('['), KeyModifiers::NONE))
+                Some(KeyAction::Key(opener, KeyModifiers::NONE))
             },
             _ => {
                 self.reset();
@@ -189,26 +215,26 @@ impl SequenceFilter {
     }
 }
 
-/// X10 wheel: 66/67 are the wheel-up/down presses, 68/69 the extended forms,
-/// 96..101 the same codes with the 32 offset that X10 adds to every byte.
-fn x10_wheel(ch: char) -> Option<isize> {
-    let code = u32::from(ch);
-    let base = if code >= 96 { code - 32 } else { code };
-    match base {
-        66 | 67 => Some(-1),
-        68 | 69 => Some(1),
+/// X10 wheel presses: 98/100 up, 99/101 down (urxvt and xterm, 32-based),
+/// 68/69 (xterm extended). 66/67 (press/release, motion on Windows conhost)
+/// carry no wheel information, so they are swallowed without scrolling.
+fn x10_wheel(code: u32) -> Option<isize> {
+    match code {
+        68 | 98 | 100 => Some(-1),
+        69 | 99 | 101 => Some(1),
         _ => None,
     }
 }
 
-/// SGR wheel: 66/67 (urxvt style) and 68/69 (xterm style) presses, 96..99 motion forms.
+/// SGR wheel: 66 (urxvt up) / 67 (urxvt down), 68 (xterm up) / 69 (xterm down),
+/// 96..99 the motion forms.
 fn sgr_wheel(digits: &str) -> Option<isize> {
     let Ok(button) = digits.split(';').next().unwrap_or_default().parse::<u32>() else {
         return None;
     };
     match button {
-        66 | 67 | 96 | 97 => Some(-1),
-        68 | 69 | 98 | 99 => Some(1),
+        66 | 68 | 96 | 98 => Some(-1),
+        67 | 69 | 97 | 99 => Some(1),
         _ => None,
     }
 }
@@ -241,18 +267,45 @@ mod tests {
     }
 
     #[test]
-    fn x10_wheel_burst_is_swallowed_and_mapped() {
-        // The exact shape observed on Windows: "[MCE+[MCB[MCD" (no ESC, it is consumed).
+    fn x10_bursts_without_direction_are_swallowed() {
+        // The shape observed on Windows: "[MCB[MCD[MCE+" (ESC is consumed by the
+        // terminal layer). Button byte 'C' is release/motion and carries no wheel
+        // information, so the bursts must vanish without scrolling.
         let mut filter = SequenceFilter::new();
-        let actions = feed(&mut filter, "[MCB[MCD[MCE+");
-        assert_eq!(actions, vec![KeyAction::Wheel(-1), KeyAction::Wheel(-1), KeyAction::Wheel(-1)]);
+        assert_eq!(feed(&mut filter, "[MCB[MCD[MCE+"), vec![]);
+    }
+
+    #[test]
+    fn m_led_motion_bursts_are_swallowed() {
+        // ConEmu/winpty form: "M b x y" per event, button byte 'C' for motion.
+        let mut filter = SequenceFilter::new();
+        assert_eq!(feed(&mut filter, "MCr#MCq#MCa#MC`#MC_#"), vec![]);
+    }
+
+    #[test]
+    fn m_led_wheel_codes_scroll() {
+        let mut filter = SequenceFilter::new();
+        assert_eq!(feed(&mut filter, "MdeXY"), vec![KeyAction::Wheel(-1), key('Y')]);
+    }
+
+    #[test]
+    fn typing_my_survives_the_m_header() {
+        let mut filter = SequenceFilter::new();
+        assert_eq!(feed(&mut filter, "MyApp"), vec![key('M'), key('y'), key('A'), key('p'), key('p')]);
+    }
+
+    #[test]
+    fn lone_m_survives_as_text() {
+        let mut filter = SequenceFilter::new();
+        assert_eq!(filter.push(KeyCode::Char('M'), KeyModifiers::NONE), None);
+        assert_eq!(filter.flush(), Some(key('M')));
     }
 
     #[test]
     fn sgr_wheel_press_and_release() {
         let mut filter = SequenceFilter::new();
         let actions = feed(&mut filter, "[<68;12;40M[<68;12;40m");
-        assert_eq!(actions, vec![KeyAction::Wheel(1)]);
+        assert_eq!(actions, vec![KeyAction::Wheel(-1)]);
     }
 
     #[test]
