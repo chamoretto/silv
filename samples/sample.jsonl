@@ -1,0 +1,16 @@
+{"ts":"2025-11-09T07:15:01.120Z","level":"INFO","message":{"logger":"app.bootstrap","text":"worker started","host":"web1","pid":42}}
+{"ts":"2025-11-09T07:15:02.001Z","level":"DEBUG","message":{"logger":"aiokafka.consumer","text":"fetch initiated","topic":"orders","partition":0,"offset":1204,"lag":17}}
+{"ts":"2025-11-09T07:15:02.480Z","level":"WARN","message":{"logger":"aiokafka.conn","text":"socket close in activity, reason Connection disconnected (request timed out)","broker":"10.0.4.11:9092"}}
+{"ts":"2025-11-09T07:15:03.100Z","level":"INFO","message":{"logger":"app.orders","text":"order accepted","order_id":"A-1021","amount":249.99,"tags":["express","priority"]}}
+{"ts":"2025-11-09T07:15:03.250Z","level":"ERROR","message":{"logger":"app.payments","text":"charge failed","order_id":"A-1021","error":{"type":"StripeError","code":"card_declined","status":402}},"trace":{"id":"4bf92f3577b34da6a3ce929d0e0e4736"}}
+{"ts":"2025-11-09T07:15:04.000Z","level":"INFO","message":{"logger":"app.health","text":"probe ok"},"meta":{"uptime_s":3600,"rss_mb":128.5,"leader":true}}
+{"ts":"2025-11-09T07:15:05.775Z","level":"TRACE","message":{"logger":"aiokafka.serializer","text":"deserialized record","key_size":12,"value_size":4096}}
+{"ts":"2025-11-09T07:15:06.330Z","level":"FATAL","message":{"logger":"app.payments","text":"webhook handler panic","order_id":"A-1021","panic":"index out of bounds: the len is 3 but the index is 5"}}
+{"ts":"2025-11-09T07:15:07.001Z","level":"INFO","message":{"logger":"app.orders","text":"order accepted","order_id":"A-1022","amount":19.5,"tags":["standard"]}}
+{"ts":"2025-11-09T07:15:08.900Z","level":"WARNING","message":{"logger":"aiokafka.consumer","text":"auto offset commit delayed","topic":"orders","group":"billing","delay_ms":950}}
+{"ts":"2025-11-09T07:15:09.410Z","level":"INFO","message":{"logger":"app.cache","text":"warm completed","keys":8123,"empty":false,"note":null,"nested":{"deep":{"answer":42}}}}
+{"ts":"2025-11-09T07:15:10.000Z","level":"NOTICE","severity_text":"notice","message":{"logger":"app.deploy","text":"config reloaded","version":"1.4.2"}}
+{"ts":"2025-11-09T07:15:11.640Z","level":"INFO","message":{"logger":"app.orders","text":"refund queued","order_id":"A-1021","reason":"charge_failed","amount":249.99},"trace":{"id":"4bf92f3577b34da6a3ce929d0e0e4736"}}
+not a json line at all
+{"ts":"2025-11-09T07:15:12.100Z","level":"INFO","message":{"logger":"aiokafka.admin","text":"metadata updated","brokers":["10.0.4.11:9092","10.0.4.12:9092"],"cluster_id":"H5gFoXkKQx-abc"}}
+{"ts":"2025-11-09T07:15:13.050Z","level":"30","message":{"logger":"app.orders","text":"order shipped","order_id":"A-1022","carrier":"dhl"}}
