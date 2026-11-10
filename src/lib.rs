@@ -24,7 +24,8 @@ use crate::data::LogStore;
 pub fn run() -> Result<()> {
     let started = Instant::now();
     let cli = cli::Cli::parse();
-    let config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
+    let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
+    config.validate().context("failed to start interactive mode")?;
 
     let bundle = parse::input::read_inputs(&config)
         .with_context(|| format!("failed to read input from {}", config.sources_display()))?;
