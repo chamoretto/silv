@@ -77,6 +77,17 @@ pub enum ColorChoice {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
+pub enum MouseMode {
+    /// Enable mouse capture except on consoles that leak mouse bytes (ConEmu class).
+    #[default]
+    Auto,
+    /// Always capture mouse events.
+    Enable,
+    /// Never capture mouse events.
+    Disable,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
 pub enum FormatArg {
     #[default]
     Auto,
@@ -322,6 +333,10 @@ pub struct Cli {
     #[arg(long)]
     pub no_color: bool,
 
+    /// Mouse capture in interactive mode: auto disables it on ConEmu-class consoles that leak mouse bytes
+    #[arg(long, value_enum, default_value = "auto")]
+    pub mouse: MouseMode,
+
     /// Print parse and record counts to stderr
     #[arg(long)]
     pub stats: bool,
@@ -359,6 +374,7 @@ pub struct Config {
     pub time_format: TimeFormat,
     pub color: ColorChoice,
     pub color_enabled: bool,
+    pub mouse: MouseMode,
     pub stats: bool,
     pub verbose: u8,
     pub quiet: bool,
@@ -394,6 +410,7 @@ impl Default for Config {
             time_format: TimeFormat::UtcDateTime,
             color: ColorChoice::Auto,
             color_enabled: false,
+            mouse: MouseMode::Auto,
             stats: false,
             verbose: 0,
             quiet: false,
@@ -459,6 +476,7 @@ impl Config {
             time_format,
             color,
             color_enabled,
+            mouse: cli.mouse,
             stats: cli.stats,
             verbose: cli.verbose,
             quiet: cli.quiet,
