@@ -4,6 +4,7 @@ pub mod detail;
 pub mod help;
 pub mod input;
 pub mod picker;
+pub mod seqfilter;
 pub mod state;
 pub mod ui;
 
@@ -19,6 +20,8 @@ use ratatui::crossterm::event::Event;
 use ratatui::crossterm::event::KeyEventKind;
 use ratatui::crossterm::execute;
 
+use crate::app::seqfilter::KeyAction;
+use crate::app::seqfilter::SequenceFilter;
 use crate::app::state::AppState;
 use crate::cli::Config;
 use crate::data::LogStore;
@@ -47,6 +50,7 @@ pub fn run(store: LogStore, config: &Config) -> Result<()> {
 
 fn run_loop(terminal: &mut ratatui::DefaultTerminal, state: &mut AppState) -> Result<()> {
     state.dirty = true;
+    let mut filter = SequenceFilter::new();
     loop {
         if state.dirty {
             terminal
@@ -60,8 +64,12 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, state: &mut AppState) -> Re
         if ratatui::crossterm::event::poll(POLL).map_err(|cause| SilvError::OutputWrite { cause })? {
             match ratatui::crossterm::event::read().map_err(|cause| SilvError::OutputWrite { cause })? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
-                    state.handle_key(key.code, key.modifiers);
-                    state.dirty = true;
+                    let mut action = filter.push(key.code, key.modifiers);
+                    while let Some(next) = action {
+                        apply_action(state, next);
+                        state.dirty = true;
+                        action = filter.take();
+                    }
                 },
                 Event::Mouse(mouse) => {
                     state.handle_mouse(mouse.kind, mouse.column, mouse.row);
@@ -72,6 +80,16 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, state: &mut AppState) -> Re
                 },
                 _ => {},
             }
+        } else if let Some(action) = filter.flush() {
+            apply_action(state, action);
+            state.dirty = true;
         }
+    }
+}
+
+fn apply_action(state: &mut AppState, action: KeyAction) {
+    match action {
+        KeyAction::Key(code, modifiers) => state.handle_key(code, modifiers),
+        KeyAction::Wheel(delta) => state.wheel(delta),
     }
 }

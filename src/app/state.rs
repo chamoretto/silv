@@ -432,6 +432,18 @@ impl AppState {
         self.cursor = usize::try_from(next).unwrap_or(0);
     }
 
+    /// Wheel scrolling, overlay-aware: three lines per notch in the active layer.
+    pub fn wheel(&mut self, notches: isize) {
+        let delta = notches.saturating_mul(3);
+        if self.detail.is_some() {
+            self.detail_move(delta);
+        } else if self.picker.is_some() {
+            self.picker_move(delta);
+        } else {
+            self.move_cursor(delta);
+        }
+    }
+
     pub fn go_first(&mut self) {
         self.cursor = 0;
     }
@@ -1004,8 +1016,8 @@ impl AppState {
     pub fn handle_mouse(&mut self, kind: MouseEventKind, column: u16, row: u16) {
         match kind {
             MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left) => self.handle_click(column, row),
-            MouseEventKind::ScrollUp => self.move_cursor(-3),
-            MouseEventKind::ScrollDown => self.move_cursor(3),
+            MouseEventKind::ScrollUp => self.wheel(-1),
+            MouseEventKind::ScrollDown => self.wheel(1),
             _ => {},
         }
     }
@@ -1169,6 +1181,36 @@ mod tests {
         assert_eq!(state.view.len(), 2);
         assert_eq!(state.focus, Focus::Rows);
         assert!(state.status.contains("rows 2/2 of 2"));
+    }
+
+    #[test]
+    fn slash_focuses_search_and_typing_narrows_the_view() {
+        let mut state = state_of(&["{\"message\":\"disk full\"}", "{\"message\":\"ok\"}"]);
+        state.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
+        assert_eq!(state.focus, Focus::Search);
+        for ch in "disk".chars() {
+            state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
+        }
+        assert_eq!(state.search_input.text(), "disk");
+        assert_eq!(state.view.len(), 1);
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.view.len(), 1);
+    }
+
+    #[test]
+    fn wheel_scrolls_and_clamps() {
+        let records: Vec<String> = (0..10).map(|i| format!("{{\"a\":{i}}}")).collect();
+        let refs: Vec<&str> = records.iter().map(String::as_str).collect();
+        let mut state = state_of(&refs);
+        state.wheel(1);
+        assert_eq!(state.cursor, 3);
+        state.wheel(-5);
+        assert_eq!(state.cursor, 0);
+        state.wheel(-1);
+        assert_eq!(state.cursor, 0);
+        state.wheel(100);
+        assert_eq!(state.cursor, 9);
     }
 
     #[test]

@@ -84,9 +84,17 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
         "search: ",
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
-    spans.extend(cursor_spans(&state.search_input.text(), state.search_input.cursor(), focused));
+    let text = state.search_input.text();
+    if focused {
+        spans.extend(cursor_spans(&text, state.search_input.cursor(), true));
+    } else if text.is_empty() {
+        spans.push(Span::styled("[/] to search", Style::default().fg(ratatui::style::Color::DarkGray)));
+    } else {
+        spans.push(Span::raw(text));
+    }
     spans.push(Span::styled(flags, Style::default().fg(ratatui::style::Color::DarkGray)));
-    spans.push(Span::styled(format!("{} hit", state.view.len()), Style::default().fg(ratatui::style::Color::DarkGray)));
+    spans
+        .push(Span::styled(format!(" {} hit", state.view.len()), Style::default().fg(ratatui::style::Color::DarkGray)));
     frame.render_widget(ratatui::widgets::Paragraph::new(Line::from(spans)), area);
 }
 
@@ -151,11 +159,19 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
 fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     let focused = state.focus == Focus::FilterInput;
+    let text = state.filter_input.text();
     let mut spans = vec![Span::styled(
         "add: ",
         Style::default().fg(ratatui::style::Color::DarkGray),
     )];
-    spans.extend(cursor_spans(&state.filter_input.text(), state.filter_input.cursor(), focused));
+    if !focused && text.is_empty() {
+        spans.push(Span::styled(
+            "[F] to add a filter (field=pattern, field^, not a and (b or c))",
+            Style::default().fg(ratatui::style::Color::DarkGray),
+        ));
+    } else {
+        spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
+    }
     if focused {
         spans.push(Span::styled("  Enter applies, Esc closes", Style::default().fg(ratatui::style::Color::DarkGray)));
     }
