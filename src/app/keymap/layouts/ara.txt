@@ -1,0 +1,35 @@
+# ara: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from ara(basic), reference us(basic) and pc(pc105), 32 pairs.
+/	L
+[	F
+]	D
+`	U
+ء	x
+أ	H
+ؤ	c
+إ	Y
+ئ	z
+ا	h
+ب	f
+ت	j
+ث	e
+ح	p
+خ	o
+ذ	`
+س	s
+ش	a
+ص	w
+ض	q
+ع	u
+غ	y
+ـ	J
+ف	t
+ق	r
+ل	g
+م	l
+ن	k
+ه	i
+ي	d
+ﻷ	G
+ﻹ	T

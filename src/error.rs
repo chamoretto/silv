@@ -99,6 +99,24 @@ pub enum SilvError {
     #[error("`{flag}` requires a value: {reason}")]
     #[diagnostic(code(silv::cli::argument_invalid))]
     Argument { flag: String, reason: String },
+
+    #[error("cannot read the key map `{path}`")]
+    #[diagnostic(
+        code(silv::keymap::read),
+        help("a key map is a text file of `from<TAB>to` character pairs, one per line, `#` starts a comment")
+    )]
+    KeyMapRead {
+        path: String,
+        #[source]
+        cause: std::io::Error,
+    },
+
+    #[error("key map `{path}`: {reason}")]
+    #[diagnostic(
+        code(silv::keymap::line_invalid),
+        help("each line maps one layout character to one QWERTY character, separated by a tab")
+    )]
+    KeyMapLine { path: String, reason: String },
 }
 
 impl SilvError {

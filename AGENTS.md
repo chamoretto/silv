@@ -49,3 +49,27 @@ Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 Record reusable commands, workflows and gotchas here, and keep this file accurate as the project
 evolves. Move longer material into `docs/` and link it from here.
+
+## Useful commands
+
+Cross check the macOS build from Windows (no linking, FFI declarations included):
+
+```powershell
+rustup target add aarch64-apple-darwin
+cargo check --target aarch64-apple-darwin --all-targets
+```
+
+Unix code paths (xkb layout detection, its tests) compile only on unix, so test them in a Linux
+environment (container, VM, WSL); the WSL form, where the repo sits under `/mnt`:
+
+```powershell
+wsl -d <distro> bash -lc "cd <repo root in the /mnt/... form> && cargo test --lib"
+```
+
+Regenerate the shipped xkb keymap tables (needs the Linux xkb data, so run it in a Linux environment):
+
+```powershell
+wsl -d <distro> bash -lc "cd <repo root in the /mnt/... form> && python3 scripts/gen-keymap-tables.py"
+```
+
+Check what the layout probing found on the current machine: `silv --key-map-show`.

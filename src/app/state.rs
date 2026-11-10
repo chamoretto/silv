@@ -6,8 +6,10 @@ use ratatui::crossterm::event::MouseEventKind;
 use ratatui::layout::Rect;
 
 use crate::app::input::Editor;
+use crate::app::keymap::KeyMap;
 use crate::app::keymap::KeyPress;
 use crate::cli::Config;
+use crate::cli::KeyMapMode;
 use crate::cli::RenderChoice;
 use crate::cli::SortDir;
 use crate::cli::SortSpec;
@@ -262,12 +264,21 @@ pub struct AppState {
     pub header_cells: Vec<(u16, u16, usize)>,
     pub chip_cells: Vec<(u16, u16, usize, u16)>,
     pub regexes: Vec<regex::Regex>,
+    /// Layout character to QWERTY position, resolved from `config.key_map`.
+    pub keymap: KeyMap,
+    /// Mode the current map was resolved for, so a mode change re-resolves it.
+    keymap_mode: KeyMapMode,
+    /// Rebuilds left: a layout switch mid-session is probed a few times, then left alone.
+    keymap_rebuilds: u8,
     pub dirty: bool,
     pub quit: bool,
 }
 
 /// Live rebuilds are skipped above this many records; Enter forces one.
 const LIVE_REBUILD_LIMIT: usize = 30_000;
+
+/// Layout probes per session after an unmapped non-ASCII key: covers a few layout switches.
+const KEYMAP_REBUILDS: u8 = 3;
 
 impl AppState {
     pub fn new(store: Store, config: Config) -> Self {
@@ -276,6 +287,8 @@ impl AppState {
         let filters = config.filters.clone();
         let search = config.search.clone();
         let search_input = Editor::with_text(&search.text());
+        let keymap = KeyMap::resolve(&config.key_map);
+        let keymap_mode = config.key_map.clone();
         let mut state = Self {
             store,
             view: View::default(),
@@ -305,6 +318,9 @@ impl AppState {
             header_cells: Vec::new(),
             chip_cells: Vec::new(),
             regexes: Vec::new(),
+            keymap,
+            keymap_mode,
+            keymap_rebuilds: KEYMAP_REBUILDS,
             dirty: true,
             quit: false,
             config,
@@ -1039,10 +1055,24 @@ impl AppState {
         self.quit = true;
     }
 
-    /// Handles a key press for the current focus and overlays.
+    /// Resolves the key map, re-probing when the mode changed or the layout switched.
+    fn keymap_press(&mut self, code: KeyCode, modifiers: KeyModifiers) -> KeyPress {
+        if self.keymap_mode != self.config.key_map {
+            self.keymap_mode = self.config.key_map.clone();
+            self.keymap = KeyMap::resolve(&self.config.key_map);
+        }
+        let mut key = KeyPress::new(code, modifiers, &self.keymap);
+        if key.needs_rebuild() && self.keymap_rebuilds > 0 {
+            self.keymap_rebuilds -= 1;
+            self.keymap = KeyMap::resolve(&self.config.key_map);
+            key = KeyPress::new(code, modifiers, &self.keymap);
+        }
+        key
+    }
+
     /// Handles a key press for the current focus and overlays.
     pub fn handle_key(&mut self, code: KeyCode, modifiers: KeyModifiers) {
-        let key = KeyPress::new(code, modifiers, self.config.key_map);
+        let key = self.keymap_press(code, modifiers);
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.bind, KeyCode::Char('c') | KeyCode::Char('d'))
         {
             self.quit();

@@ -1,0 +1,5 @@
+# hr: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from hr(basic), reference us(basic) and pc(pc105), 2 pairs.
+-	/
+_	?

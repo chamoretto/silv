@@ -1,0 +1,15 @@
+# fr: layout characters and the QWERTY character of the same key.
+# generated from xkeyboard-config by scripts/gen-keymap-tables.py, do not edit.
+# from fr(basic), reference us(basic) and pc(pc105), 12 pairs.
+!	/
+,	m
+?	M
+A	Q
+Q	A
+W	Z
+Z	W
+a	q
+q	a
+w	z
+z	w
+§	?
