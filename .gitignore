@@ -28,7 +28,6 @@ target/
 !.rustfmt.toml
 !.gitattributes
 
-Cargo.lock
 logs/*.log
 .env
 *.log
