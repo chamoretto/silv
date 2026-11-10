@@ -1,17 +1,27 @@
 # git-cliff ~ configuration file
 # https://git-cliff.org/docs/configuration
-
+# Output notation: Keep a Changelog 1.1.0 (https://keepachangelog.com/en/1.1.0/)
 
 [changelog]
 # Used by `--prepend` to remove the previous header.
 header_marker = "<!-- git-cliff: end of header -->"
+header = """
+# Changelog\n\
+\n\
+All notable changes to this project will be documented in this file.\n\
+\n\
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),\n\
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n\
+\n\
+<!-- git-cliff: end of header -->\n
+"""
 # A Tera template to be rendered for each release in the changelog.
 # See https://keats.github.io/tera/#getting-started
 body = """
 {% if version %}\
     ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
 {% else %}\
-    ## [unreleased]
+    ## [Unreleased]
 {% endif %}\
 {% for entry in commits | commit_groups(groups=commit_parsers_groups) %}
     ### {{ entry.group | striptags | trim | upper_first }}
@@ -22,19 +32,28 @@ body = """
     {% endfor %}
 {% endfor %}
 """
+# A Tera template to be rendered after the last release: version reference links.
+footer = """
+
+{% for release in releases -%}
+    {% if release.version -%}
+        {% if release.previous.version -%}
+            [{{ release.version | trim_start_matches(pat="v") }}]: <REPO>/compare/{{ release.previous.version }}...{{ release.version }}
+        {% else -%}
+            [{{ release.version | trim_start_matches(pat="v") }}]: <REPO>/releases/tag/{{ release.version }}
+        {% endif -%}
+    {% endif -%}
+{% endfor -%}
+"""
 # Remove leading and trailing whitespaces from the changelog's body.
 trim = true
 # Render body even when there are no releases to process.
 render_always = true
 # An array of regex based postprocessors to modify the changelog.
 postprocessors = [
-    # Replace the placeholder <REPO> with a URL.
-    #{ pattern = '<REPO>', replace = "https://github.com/orhun/git-cliff" },
+    # Replace the placeholder <REPO> with the repository URL.
+    { pattern = '<REPO>', replace = "https://github.com/chamoretto/silv" },
 ]
-# render body even when there are no releases to process
-# render_always = true
-# output file path
-# output = "test.md"
 
 [git]
 # Parse commits according to the conventional commits specification.
@@ -51,31 +70,30 @@ split_commits = false
 commit_preprocessors = [
     # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
     #{ pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
-    # Check spelling of the commit message using https://github.com/crate-ci/typos.
-    # If the spelling is incorrect, it will be fixed automatically.
-    #{ pattern = '.*', replace_command = 'typos --write-changes -' },
 ]
 # Prevent commits that are breaking from being excluded by commit parsers.
 protect_breaking_commits = false
 # An array of regex based parsers for extracting data from the commit message.
-# Assigns commits to groups.
-# Optionally sets the commit's scope and can decide to exclude commits from further processing.
+# Group names follow Keep a Changelog section notation; parser order sets group order.
 commit_parsers = [
-    { message = "^feat", group = "<!-- 0 -->🚀 Features" },
-    { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
-    { message = "^doc", group = "<!-- 3 -->📚 Documentation" },
-    { message = "^perf", group = "<!-- 4 -->⚡ Performance" },
-    { message = "^refactor", group = "<!-- 2 -->🚜 Refactor" },
-    { message = "^style", group = "<!-- 5 -->🎨 Styling" },
-    { message = "^test", group = "<!-- 6 -->🧪 Testing" },
+    { message = "^feat", group = "Added" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^[Rr]emove", group = "Removed" },
+    { message = "^deprecat", group = "Deprecated" },
+    { message = "^[Cc]hang(e)? ", group = "Changed" },
+    { message = "^refactor", group = "Changed" },
+    { body = ".*security", group = "Security" },
+    { message = "^docs", group = "Documentation" },
+    { message = "^test", group = "Testing" },
+    { message = "^perf", group = "Performance" },
+    { message = "^style", group = "Styling" },
+    { message = "^revert", group = "Reverted" },
     { message = "^chore\\(release\\): prepare for", skip = true },
     { message = "^chore\\(deps.*\\)", skip = true },
     { message = "^chore\\(pr\\)", skip = true },
     { message = "^chore\\(pull\\)", skip = true },
-    { message = "^chore|^ci", group = "<!-- 7 -->⚙️ Miscellaneous Tasks" },
-    { body = ".*security", group = "<!-- 8 -->🛡️ Security" },
-    { message = "^revert", group = "<!-- 9 -->◀️ Revert" },
-    { message = ".*", group = "<!-- 10 -->💼 Other" },
+    { message = "^chore|^ci", group = "Miscellaneous Tasks" },
+    { message = ".*", group = "Other" },
 ]
 # Exclude commits that are not matched by any commit parser.
 filter_commits = false
