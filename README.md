@@ -147,6 +147,7 @@ c            field picker            d            delete focused filter, or focu
 v            cycle render mode       t m          toggle timestamp / message column
 L r A        case, regex, scope      x X          clear search, clear all filters
 Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort
+Space (row)  pick value, Enter adds  a filter by that value (the wizard asks the operator)
 Mouse        click row = detail, click header = drag mode, wheel = scroll
 ?            help                    q, Ctrl-C    quit
 ```

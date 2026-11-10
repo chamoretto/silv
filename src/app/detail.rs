@@ -2,6 +2,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::Constraint;
+use ratatui::layout::Layout;
 use ratatui::layout::Rect;
 use ratatui::style::Modifier;
 use ratatui::style::Style;
@@ -38,10 +39,7 @@ pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
     let title = format!(" record {record_line} of {} ", state.view.len());
 
     let block = Block::bordered()
-        .title(Line::from(vec![
-            Span::styled(title, Style::default().add_modifier(Modifier::BOLD)),
-            Span::styled(format!(" {FOOTER} "), Style::default().fg(ratatui::style::Color::DarkGray)),
-        ]))
+        .title(Line::from(Span::styled(title, Style::default().add_modifier(Modifier::BOLD))))
         .title_bottom(Line::from(format!(
             " {}/{} ",
             detail.cursor + 1,
@@ -55,10 +53,21 @@ pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
+    // Control keys get their own line at the top of the content: the window header is too narrow.
+    let rects = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(inner);
+    let footer = if detail.json { "v fields, Esc close" } else { FOOTER };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            format!(" {footer}"),
+            Style::default().fg(ratatui::style::Color::DarkGray),
+        ))),
+        rects[0],
+    );
+
     if detail.json {
-        draw_json(frame, detail, inner);
+        draw_json(frame, detail, rects[1]);
     } else {
-        draw_fields(frame, state, detail, inner);
+        draw_fields(frame, state, detail, rects[1]);
     }
 
     if detail.menu.is_some() {
