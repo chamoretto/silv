@@ -14,7 +14,8 @@ Compress proactively when conversation reaches 200000+ tokens. Your context is 2
 
 ### For reading - Use Shell + RTK for File Reading When Possible
 
-Shell commands go through RTK (token compression, installed: rtk 0.37.2). Use them for reading:
+If `RTK` is installed, use it.
+Shell commands go through RTK (token compression tool). Use it for reading:
 
 ```powershell
 # Read specific lines (compressed by RTK) — PowerShell, no sed on Windows.
@@ -27,7 +28,7 @@ rtk rg "fn function" src/some/folder
 rtk rg "^\s*(fn |struct |async fn )" src/some/file.rs
 ```
 
-If rtk harms file contents or you need to understand file fully, read it. Only if necessary.
+If rtk harms file contents, or you need to understand file fully, read it. Only if necessary.
 
 ## Code Rules (violations may cause bugs)
 
@@ -49,9 +50,9 @@ Prefer dependencies with static linking option.
 ## Git
 
 git are initialized offline. Use git worktrees, branches to save code, try out things in different branches, etc.
-In commits use Conventional commits (`.ai/conventional-commits.md`). To preserve style, use `git-cliff`(git-cliff.org)
-CLI[opencode.json](../../.config/opencode/opencode.json) and configs (it is installed)
-Follow semver 2.0 for versions. (`.ai/semantic_versioning_2.md`)
+In commits use Conventional commits (`docs/conventional-commits.md`). To preserve style, use `git-cliff`(git-cliff.org)
+CLI and configs (it is installed)
+Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 ## Self-improvement
 
