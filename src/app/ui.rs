@@ -262,7 +262,8 @@ fn span_width(span: &Span<'_>) -> usize {
 
 /// Prompt text with `[key]` tokens rendered with a background; the rest uses `base`.
 pub fn key_spans(text: &str, base: Style) -> Vec<Span<'static>> {
-    let key = base.bg(Color::DarkGray);
+    // Reset the fg: the base is often DarkGray, and gray-on-gray is invisible.
+    let key = base.bg(Color::DarkGray).fg(Color::Reset);
     let mut spans = Vec::new();
     let mut plain = String::new();
     let mut key_text = String::new();
@@ -691,6 +692,13 @@ mod tests {
             .map(|span| span.content.as_ref())
             .collect();
         assert_eq!(keys, ["Enter", "Space"]);
+        assert!(
+            spans
+                .iter()
+                .filter(|span| span.style.bg.is_some())
+                .all(|span| span.style.fg == Some(Color::Reset)),
+            "key tokens must not inherit a dim foreground"
+        );
     }
 
     #[test]
