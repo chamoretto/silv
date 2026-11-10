@@ -3,6 +3,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: tag to (re)publish, e.g. v0.1.0
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -14,6 +20,8 @@ jobs:
   build:
     name: build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     strategy:
       fail-fast: false
       matrix:
@@ -32,6 +40,8 @@ jobs:
             rustflags: ""
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -50,21 +60,24 @@ jobs:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo build --release --target ${{ matrix.target }}
 
+      # one checksum file per target: the artifacts land in one directory, a shared
+      # SHA256SUMS would be overwritten by the last download
       - name: package
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
+          BIN: ${{ matrix.artifact }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          name="silv-${GITHUB_REF_NAME}-${{ matrix.target }}"
-          mkdir -p dist
-          cp "target/${{ matrix.target }}/release/${{ matrix.artifact }}" "dist/${name}"
-          if [[ "${{ matrix.target }}" == *windows* ]]; then
-            mv "dist/${name}" "dist/${name}.exe"
-            printf '%s  %s\n' "$(sha256sum "dist/${name}.exe" | cut -d' ' -f1)" "${name}.exe" > "dist/SHA256SUMS"
-          else
-            printf '%s  %s\n' "$(sha256sum "dist/${name}" | cut -d' ' -f1)" "${name}" > "dist/SHA256SUMS"
+          ext=""
+          if [[ "$BIN" == *.exe ]]; then
+            ext=".exe"
           fi
-          echo "release version: ${version}"
+          name="silv-${TAG}-${TARGET}${ext}"
+          mkdir -p dist
+          cp "target/${TARGET}/release/${BIN}" "dist/${name}"
+          printf '%s  %s\n' "$(sha256sum "dist/${name}" | cut -d' ' -f1)" "$name" > "dist/SHA256SUMS-${TARGET}"
+          cat "dist/SHA256SUMS-${TARGET}"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -76,9 +89,12 @@ jobs:
     name: publish github release
     needs: build
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v7
         with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - uses: actions/download-artifact@v8
@@ -96,24 +112,35 @@ jobs:
           name: bin-aarch64-apple-darwin
           path: artifacts
 
-      - name: merge checksums
-        run: sort artifacts/SHA256SUMS -o artifacts/SHA256SUMS
+      - name: merge and verify checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat artifacts/SHA256SUMS-* > artifacts/SHA256SUMS
+          rm artifacts/SHA256SUMS-*
+          sort -k2 artifacts/SHA256SUMS -o artifacts/SHA256SUMS
+          (cd artifacts && sha256sum -c SHA256SUMS)
+          cat artifacts/SHA256SUMS
 
+      # `changelog` output is the file path, `content` is the text; write the file via OUTPUT
+      # and hand that file to the release. `--strip all` removes the KaC header/footer: GitHub
+      # already renders the release title.
       - name: generate release notes
         id: cliff
         uses: orhun/git-cliff-action@v4
         with:
+          config: cliff.toml
           args: --latest --strip all
-
-      - name: write release notes
-        run: printf '%s\n' "${{ steps.cliff.outputs.changelog }}" > CLIFF-CHANGELOG.md
-        shell: bash
+        env:
+          OUTPUT: release-notes.md
+          GITHUB_REPO: ${{ github.repository }}
 
       - name: create release
         uses: softprops/action-gh-release@v3
         with:
+          tag_name: ${{ env.TAG }}
           files: artifacts/*
-          body_path: CLIFF-CHANGELOG.md
+          body_path: release-notes.md
           generate_release_notes: false
           make_latest: true
           fail_on_unmatched_files: true
