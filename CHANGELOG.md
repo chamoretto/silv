@@ -11,15 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(keymap)* Keep macOS layout sources alive while translating
-
-### Testing
-
-- *(tui)* Match the prompt line test to the reworded prompts
-
-### Miscellaneous Tasks
-
-- Add the local three-platform gate script
+- *(keymap)* Make the macOS layout probe opt-in
 
 ## [0.1.4] - 2026-11-11
 
@@ -35,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(tui)* Match key bindings on the physical QWERTY key for non-Latin layouts ([efbdbdf](https://github.com/chamoretto/silv/commit/efbdbdf218cb01fb52b99f1e5f8aa121431e064a))
 - *(tui)* Wrap prompt lines and separate them from the rows ([2aa2a36](https://github.com/chamoretto/silv/commit/2aa2a36a8437a984eb1eff5b36bb89a3cd5bdec4))
 - *(changelog)* One Unreleased heading and a valid Unreleased link ([2e29472](https://github.com/chamoretto/silv/commit/2e2947293035f3fc072120a2ef4f0184e13f9dfb))
+- *(keymap)* Keep macOS layout sources alive while translating ([6ff979a](https://github.com/chamoretto/silv/commit/6ff979a89e5f12e8ae3edc184ed450eb452e9b49))
+
+### Testing
+
+- *(tui)* Match the prompt line test to the reworded prompts ([7f861eb](https://github.com/chamoretto/silv/commit/7f861eba1dce38e3cc71986768eb00be47b77f20))
+
+### Miscellaneous Tasks
+
+- Add the local three-platform gate script ([ef4b00c](https://github.com/chamoretto/silv/commit/ef4b00ca21bc7c40de462b833f4080cf2601942a))
 
 ## [0.1.3] - 2026-11-10
 

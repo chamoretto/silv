@@ -4,8 +4,18 @@
 //! key code to the typed character, and the current ASCII-capable layout (the US one for every
 //! non-Latin layout) translates the same key code to the QWERTY character. Translating every
 //! key code through both and joining the results gives the map, so all layouts work without a
-//! per-layout table. Latin layouts (QWERTZ, AZERTY, Dvorak) are ASCII-capable, they report
+//! per-layout table. Latin layouts (QWERTY, QWERTZ, AZERTY, Dvorak) are ASCII-capable, they report
 //! themselves, the map is empty and bindings follow the typed character.
+//!
+//! The probe is opt-in (`SILV_KEYMAP_PROBE=1`, see `probe_policy`), because the FFI is not safe:
+//! `UCKeyTranslate` is a Carbon entry point whose shape moved. The declaration below is the 10
+//! parameter form of the classic recipe; the entry point recent systems export takes a
+//! `KeyboardLayout *` state pointer first (`UCKeyTranslateNew`), so a call through the old shape
+//! passes arguments one register off, writes through a pointer built from layout bytes, and can
+//! abort the process. A headless CI runner is enough to hit it: the test binary died with SIGABRT
+//! mid-run. Verify on a Mac with `SILV_KEYMAP_PROBE=1 silv --key-map-show` before trusting it, and
+//! replace this module with `UCKeyTranslateNew` plus a proper state struct, or a maintained Carbon
+//! binding, once there is a Mac to check the result on.
 
 use std::collections::BTreeMap;
 use std::ffi::c_void;
@@ -56,6 +66,10 @@ mod ffi {
         pub unsafe fn TISCopyCurrentKeyboardLayoutInputSource() -> CFTypeRef;
         pub unsafe fn TISCopyCurrentASCIICapableKeyboardLayoutInputSource() -> CFTypeRef;
         pub unsafe fn TISGetInputSourceProperty(source: CFTypeRef, key: CFStringRef) -> CFTypeRef;
+
+        // The 10 parameter form of the classic recipe. Recent systems export a wider entry point
+        // (a state pointer first), which is why the probe that calls it is opt-in, see the module
+        // documentation.
         #[allow(clippy::too_many_arguments, reason = "the C signature has ten parameters")]
         pub unsafe fn UCKeyTranslate(
             keyboard: *const u8,

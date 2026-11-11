@@ -169,13 +169,18 @@ Cyrillic. The map of the active layout comes from the platform:
 - Windows: user32 translates every virtual key with the active layout (`MapVirtualKeyEx` + `ToUnicodeEx`), so any
   installed layout works, dead-key layouts included.
 - macOS: the current layout and the ASCII-capable one are read through the Text Input Source API
-  (`UCKeyTranslate`), so any layout works, Dvorak and Colemak included.
+  (`UCKeyTranslate`), so any layout works, Dvorak and Colemak included. This probe is opt-in
+  (`SILV_KEYMAP_PROBE=1`): the Carbon entry point gained parameters on recent systems, so the
+  hand written declaration SILV links does not match it there, and a call can corrupt memory and
+  abort the process. macOS therefore uses the built-in table by default; `--key-map ru` or
+  `--key-map file:<path>` is the explicit way to a full map.
 - Linux and other unix: a terminal app cannot ask, so SILV ships 46 Xkb layout tables (Cyrillic, Greek, Arabic,
   Hebrew, Thai, plus the Dvorak, Colemak, Workman and Norman forms of QWERTY) and picks one from
   `XKB_DEFAULT_LAYOUT`, `XKBLAYOUT` or `XKB_LAYOUT`.
 - A built-in Russian/Ukrainian table covers the platforms where probing finds nothing.
 
 A layout switch mid-session is picked up when a key arrives unmapped (a few probes per run).
+`SILV_KEYMAP_PROBE=1` turns the live probe on (macOS) and `=0` turns it off (Windows, unix).
 `--key-map <mode>` overrides the choice: `auto` (the platform, the default), a layout name (`ru`, `de`,
 `us-dvorak`, ...; the error of an unknown name lists them), `file:<path>` with `<from><TAB><to>` lines, `raw`
 (bindings follow the typed character, which suits Latin layouts). `--key-map-show` prints the resolved map, where
