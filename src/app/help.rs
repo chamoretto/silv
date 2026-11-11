@@ -9,7 +9,7 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 26] = [
+const LINES: [&str; 27] = [
     "SILV - simple interactive log viewer",
     "",
     "Layout: search bar, filter chips, field header, rows, prompt line, status. The top stays visible",
@@ -22,6 +22,7 @@ const LINES: [&str; 26] = [
     "  Tab/BackTab  move focus              Enter        open record / apply input / sort focused field",
     "  j k f b g G  move row, page          s            sort focused field (asc, desc, off)",
     "  c            field picker            d            delete focused filter, or focused column in header",
+    "  S            focus field header    BackTab      focus backwards",
     "  v            cycle render mode       t m          toggle timestamp / message column",
     "  L r A        case, regex, scope      x X          clear search, clear all filters",
     "  Ctrl+Z       undo last filter       Ctrl+Y        redo the undone filter change",

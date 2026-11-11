@@ -146,6 +146,7 @@ does not fit moves to the next row, the chip block shows up to four rows and scr
 Tab/BackTab  move focus              Enter        open record / apply input / sort focused field
 j k f b g G  move row, page          s            sort focused field (asc, desc, off)
 c            field picker            d            delete focused filter, or focused column in header
+S            field header            BackTab      focus backwards
 v            cycle render mode       t m          toggle timestamp / message column
 L r A        case, regex, scope      x X          clear search, clear all filters
 Ctrl+Z       undo last filter       Ctrl+Y        redo last deleted filter
