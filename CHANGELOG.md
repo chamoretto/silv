@@ -9,8 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [Unreleased]
-
 ### Added
 
 - *(tui)* Map keyboard layouts to QWERTY bindings on every platform
@@ -22,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(tui)* Match key bindings on the physical QWERTY key for non-Latin layouts
 - *(tui)* Wrap prompt lines and separate them from the rows
+- *(changelog)* One Unreleased heading and a valid Unreleased link
 
 ## [0.1.3] - 2026-11-10
 
@@ -108,7 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track Cargo.lock for reproducible release builds ([bd3434a](https://github.com/chamoretto/silv/commit/bd3434a420b6adddf60192c2a319d5e9bff9f6c4))
 
 
-[Unreleased]: https://github.com/chamoretto/silv/compare/...HEAD
+[Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.3...HEAD
 [0.1.3]: https://github.com/chamoretto/silv/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/chamoretto/silv/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/chamoretto/silv/compare/v0.1.0...v0.1.1
