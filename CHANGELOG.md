@@ -26,6 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(cliff)* Keep squashed PR commits in the changelog
 - *(changelog)* Regenerated CHANGELOG.md ([#6](https://github.com/chamoretto/silv/issues/6))
 
+### Documentation
+
+- Update the interactive TUI screenshot
+
 ### Testing
 
 - *(tui)* Match the prompt line test to the reworded prompts
