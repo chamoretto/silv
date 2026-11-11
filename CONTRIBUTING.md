@@ -39,6 +39,21 @@ The WSL gate needs a Rust toolchain in the distro (`SILV_WSL_DISTRO` overrides t
 `Ubuntu-24.04`). The macOS gate is a cross compile: checks and clippy only, its tests have to run on a
 Mac, which CI does.
 
+### macOS tests run single threaded
+
+`cargo test` on macOS needs `--test-threads=1`:
+
+```sh
+cargo test --all-targets -- --test-threads=1
+```
+
+The macOS key map probe reads the Carbon text input source API, which answers only on the thread that
+owns the GUI session. The test harness runs tests on parallel worker threads; calling that API from
+one aborts the whole test binary with SIGABRT, with no Rust panic and no reference to the probe in
+the output. The probe guards itself with `pthread_main_np()` and degrades to the built-in table off
+the main thread, so a multi-threaded run survives and reports the probe test as skipped, and a
+single threaded run executes it. CI passes the flag on the macOS job.
+
 Prefer feature branches with pull requests: `ci.yml` runs the identical gate on `pull_request`, so
 `main` stays releasable and a platform-gated break is caught before it lands.
 
@@ -80,6 +95,11 @@ on GitHub, so run their local equivalents before pushing.
    ```sh
    git-cliff --tag v0.1.1 -o CHANGELOG.md
    ```
+
+   `--tag` names a tag that does not exist yet: it cuts the unreleased commits as that version. If the
+   tag exists, `--tag <existing>` prints two sections with the same name (the one it just cut, and the
+   one of the existing tag range), so an existing tag is regenerated without `--tag`, see
+   [Re-cutting a release](#re-cutting-a-release-the-tag-already-exists).
 
    Then hand-check the result: `## [Unreleased]` first (the heading comes from the body template, the header ends at the marker), sections in Added / Changed / Deprecated /
    Removed / Fixed / Security order, every `## [x.y.z]` heading has a link ref at the bottom (the `Unreleased` link points at the latest tag), and
@@ -125,3 +145,29 @@ on GitHub, so run their local equivalents before pushing.
 
 8. To republish notes or assets without moving the tag: Actions -> `release` -> Run workflow, and
    pass the tag. Never move a tag that was pushed: consumers pin on it.
+
+### Re-cutting a release (the tag already exists)
+
+Only when nothing was published from the tag yet (its GitHub release is deleted, no assets were
+downloaded): consumers pin on tag names, so a tag with downloads underneath it stays where it is.
+
+The changelog of a tag that exists is regenerated plainly: the section name comes from the tag, so
+`--tag` is not needed, and passing it adds a second section with the same name.
+
+```sh
+git checkout main
+git pull --ff-only                                  # main with the commits the release must carry
+git tag -d v0.1.4                                   # the local tag of the release being replaced
+git tag -a v0.1.4 -m "v0.1.4"                       # tentatively at main tip
+git-cliff -o CHANGELOG.md                           # one v0.1.4 section, its range ends at the tag
+git add CHANGELOG.md
+git commit -m "chore(release): prepare for v0.1.4"  # cliff.toml skips this commit
+git tag -f -a v0.1.4 -m "v0.1.4"                    # move the tag onto the release commit
+git-cliff -o CHANGELOG.md                           # must print no diff: tag and file agree
+git push origin main
+git push -f origin v0.1.4                           # pushing the tag starts the release workflow
+```
+
+The tag has to end up at the release commit, so that the `CHANGELOG.md` inside the tag carries the
+section. The last regeneration is the check: an empty diff means the tag range and the file agree, a
+non-empty one means they do not.

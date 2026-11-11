@@ -11,6 +11,9 @@
 
     Requirements: cargo with the aarch64-apple-darwin target installed (rustup target add), and WSL
     with a Rust toolchain for the unix gate (SILV_WSL_DISTRO overrides the distro name).
+
+    The macOS gate is a cross check, it cannot run macOS tests. On a Mac run them yourself, single
+    threaded: `cargo test --all-targets -- --test-threads=1` (the key map probe is main thread only).
 #>
 param(
     [switch]$Quick,

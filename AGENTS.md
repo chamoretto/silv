@@ -88,3 +88,11 @@ wsl -d Ubuntu-24.04 bash -lc "cd /mnt/c/Users/George/RustroverProjects/silv && p
 ```
 
 Check what the layout probing found on the current machine: `silv --key-map-show`.
+
+On macOS the layout probe calls the Carbon input source API, which answers only on the main thread
+(see `src/app/keymap/macos.rs`), so run its tests single threaded, and print what it found:
+
+```sh
+cargo test --all-targets -- --test-threads=1
+silv --key-map-show
+```
