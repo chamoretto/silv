@@ -12,7 +12,8 @@
 //!   `ToUnicodeEx`; the scan code they yield is looked up in the ANSI scan code table. Every
 //!   layout Windows provides is covered, no per-layout table and no layout needs installing.
 //! - macOS: the current layout is translated with `UCKeyTranslate` and compared against the
-//!   current ASCII-capable layout, which is the US one for every non-Latin layout.
+//!   current ASCII-capable layout, which is the US one for every non-Latin layout. The input source
+//!   API is main thread only, see `macos.rs`.
 //! - Linux and other unix: X11 keymap tables in `layouts/`, generated from xkeyboard-config
 //!   and selected by `XKB_DEFAULT_LAYOUT`.
 //! - Everywhere: `builtin.txt` as a fallback, so legacy consoles keep the Russian bindings,
@@ -304,8 +305,12 @@ pub const PLATFORM: &str = if cfg!(windows) {
     "none"
 };
 
-/// Map of the layout the system is currently using, empty when the platform cannot tell.
+/// Map of the layout the system is currently using, empty when the platform cannot tell, or when
+/// probing is switched off by `SILV_KEYMAP_PROBE`.
 fn platform_map() -> KeyMap {
+    if !probe_enabled() {
+        return KeyMap::raw();
+    }
     #[cfg(windows)]
     {
         KeyMap::from_entries(windows::build(), KeyMapOrigin::Builtin)
@@ -326,6 +331,9 @@ fn platform_map() -> KeyMap {
 
 /// One line description of the platform probe, for `--key-map-show`.
 fn platform_detail() -> String {
+    if !probe_enabled() {
+        return format!("probe off, {PROBE_ENV} switched it off");
+    }
     #[cfg(windows)]
     {
         windows::detail()
@@ -342,6 +350,26 @@ fn platform_detail() -> String {
     {
         "no layout probing on this platform".to_owned()
     }
+}
+
+/// Environment variable that switches the live layout probe on and off.
+const PROBE_ENV: &str = "SILV_KEYMAP_PROBE";
+
+/// Values that switch the probe off.
+const PROBE_OFF: [&str; 4] = ["0", "off", "no", "false"];
+
+/// Probe policy for an env value: every platform probes by default, `SILV_KEYMAP_PROBE` is the
+/// escape hatch that switches probing off, and an unknown value changes nothing. The macOS probe is
+/// main thread only (`macos.rs`): off the main thread it degrades to the built-in table rather than
+/// aborting, which is what a multi-threaded test harness would do to the process.
+fn probe_policy(setting: Option<&str>) -> bool {
+    let off =
+        |words: &[&str]| setting.is_some_and(|value| words.iter().any(|word| value.trim().eq_ignore_ascii_case(word)));
+    !off(&PROBE_OFF)
+}
+
+fn probe_enabled() -> bool {
+    probe_policy(std::env::var(PROBE_ENV).ok().as_deref())
 }
 
 #[cfg(test)]
@@ -492,6 +520,16 @@ mod tests {
         assert!(!key.needs_rebuild());
     }
 
+    #[test]
+    fn probe_policy_probes_by_default_and_takes_the_off_values() {
+        assert!(probe_policy(None), "every platform probes by default");
+        assert!(probe_policy(Some("1")));
+        assert!(probe_policy(Some("nonsense")), "an unknown value changes nothing");
+        assert!(!probe_policy(Some("0")), "an off value switches probing off");
+        assert!(!probe_policy(Some("OFF")), "values are trimmed and case free");
+        assert!(!probe_policy(Some(" no ")));
+    }
+
     #[cfg(windows)]
     #[test]
     fn windows_probe_yields_usable_pairs() {
@@ -533,9 +571,14 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn macos_probe_yields_usable_pairs() {
+        if !macos::on_main_thread() {
+            // The input source API is main thread only, so the harness must keep tests on it.
+            eprintln!("skipped: the macOS probe needs the main thread, run with `--test-threads=1`");
+            return;
+        }
         let pairs = macos::build();
         if pairs.is_empty() {
-            // Headless runners can have no keyboard layout input source; the probe degrades to empty.
+            // A session without a keyboard layout input source: the probe degrades to empty.
             assert!(!macos::detail().is_empty());
             return;
         }

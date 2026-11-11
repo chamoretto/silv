@@ -4,8 +4,23 @@
 //! key code to the typed character, and the current ASCII-capable layout (the US one for every
 //! non-Latin layout) translates the same key code to the QWERTY character. Translating every
 //! key code through both and joining the results gives the map, so all layouts work without a
-//! per-layout table. Latin layouts (QWERTZ, AZERTY, Dvorak) are ASCII-capable, they report
+//! per-layout table. Latin layouts (QWERTY, QWERTZ, AZERTY, Dvorak) are ASCII-capable, they report
 //! themselves, the map is empty and bindings follow the typed character.
+//!
+//! # Thread affinity
+//!
+//! The Carbon text input system belongs to the thread that owns the GUI session. Asking it for the
+//! current input source, and translating with the layout bytes that answer returns, is only allowed
+//! on that thread. From any other thread the calls abort the process: SIGABRT with no Rust panic,
+//! which is the shape of the macOS `cargo test` crash: the harness runs tests on parallel worker
+//! threads, and one of them calls the probe (<https://github.com/deskflow/deskflow/issues/10136>
+//! reports the same abort).
+//!
+//! `on_main_thread` guards the probe: off the main thread `build` yields an empty map, so the
+//! bindings fall back to the built-in table, and `detail` says so. The consequence for tests is
+//! that the probe test probes only under `cargo test -- --test-threads=1`, where the harness keeps
+//! tests on the main thread: the macOS CI job passes that flag, and a multi-threaded run reports
+//! the test as skipped.
 
 use std::collections::BTreeMap;
 use std::ffi::c_void;
@@ -33,6 +48,8 @@ const UTF8_ENCODING: u32 = 0x0800_0100;
     reason = "carbon and core foundation declarations mirror the C headers"
 )]
 mod ffi {
+    use std::ffi::c_int;
+
     use super::c_void;
 
     // Opaque Core Foundation references: pointers, typed only to keep the signatures readable.
@@ -56,6 +73,11 @@ mod ffi {
         pub unsafe fn TISCopyCurrentKeyboardLayoutInputSource() -> CFTypeRef;
         pub unsafe fn TISCopyCurrentASCIICapableKeyboardLayoutInputSource() -> CFTypeRef;
         pub unsafe fn TISGetInputSourceProperty(source: CFTypeRef, key: CFStringRef) -> CFTypeRef;
+
+        // The 10 parameter form of the classic recipe, verified on a Mac. Recent systems also
+        // export a wider entry point under this name (`UCKeyTranslateNew`, a `KeyboardLayout *`
+        // state pointer first): if a system ever aborts here, that declaration plus a real state
+        // struct is the first thing to replace.
         #[allow(clippy::too_many_arguments, reason = "the C signature has ten parameters")]
         pub unsafe fn UCKeyTranslate(
             keyboard: *const u8,
@@ -71,10 +93,25 @@ mod ffi {
         ) -> OSStatus;
         pub unsafe fn LMGetKbdType() -> u8;
     }
+
+    // libSystem is linked by every macOS target, no link attribute needed.
+    unsafe extern "C" {
+        /// Non-zero when the calling thread is the main thread of the process.
+        pub fn pthread_main_np() -> c_int;
+    }
+}
+
+/// True when the calling thread may use the input source API: the main thread of the GUI session.
+pub fn on_main_thread() -> bool {
+    unsafe { ffi::pthread_main_np() != 0 }
 }
 
 /// Pairs of layout character and QWERTY character of the same physical key.
 pub fn build() -> Vec<(char, char)> {
+    // Off the main thread the input source API aborts the process, so the probe degrades to empty.
+    if !on_main_thread() {
+        return Vec::new();
+    }
     // The sources must outlive the translations: the layout bytes come from data they own.
     let current_source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
     let ascii_source = Source(unsafe { ffi::TISCopyCurrentASCIICapableKeyboardLayoutInputSource() });
@@ -111,6 +148,9 @@ pub fn build() -> Vec<(char, char)> {
 
 /// One line description of what was probed, for `--key-map-show`.
 pub fn detail() -> String {
+    if !on_main_thread() {
+        return "input source API needs the main thread, builtin table".to_owned();
+    }
     let source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
     if source.0.is_null() {
         return "no keyboard layout input source".to_owned();
