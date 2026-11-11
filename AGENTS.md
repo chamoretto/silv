@@ -43,6 +43,8 @@ CLI and configs (it is installed)
 CHANGELOG.md is generated (commit-based, see CONTRIBUTING.md): a post-commit hook (`.githooks`,
 enable with `git config core.hooksPath .githooks`) updates it automatically; never edit it by hand,
 the hook amends commits with the refreshed file. History rewrites (rebase, cherry-pick) skip the hook.
+A squash merge of a PR takes the PR title as the commit subject, so the PR title is the changelog
+entry: write it as a Conventional Commits subject, and do not expect the PR body to show up.
 Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
 
 ## Self-improvement
