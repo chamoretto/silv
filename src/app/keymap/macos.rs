@@ -75,9 +75,10 @@ mod ffi {
 
 /// Pairs of layout character and QWERTY character of the same physical key.
 pub fn build() -> Vec<(char, char)> {
-    let current = layout_data(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
-    let ascii = layout_data(unsafe { ffi::TISCopyCurrentASCIICapableKeyboardLayoutInputSource() });
-    let (Some(current), Some(ascii)) = (current, ascii) else {
+    // The sources must outlive the translations: the layout bytes come from data they own.
+    let current_source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
+    let ascii_source = Source(unsafe { ffi::TISCopyCurrentASCIICapableKeyboardLayoutInputSource() });
+    let (Some(current), Some(ascii)) = (layout_data(current_source.0), layout_data(ascii_source.0)) else {
         return Vec::new();
     };
     let keyboard_type = u32::from(unsafe { ffi::LMGetKbdType() });
@@ -110,21 +111,34 @@ pub fn build() -> Vec<(char, char)> {
 
 /// One line description of what was probed, for `--key-map-show`.
 pub fn detail() -> String {
-    let source = unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() };
-    if source.is_null() {
+    let source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
+    if source.0.is_null() {
         return "no keyboard layout input source".to_owned();
     }
-    let name = unsafe { ffi::TISGetInputSourceProperty(source, ffi::kTISPropertyLocalizedName) };
+    let name = unsafe { ffi::TISGetInputSourceProperty(source.0, ffi::kTISPropertyLocalizedName) };
     let label = if name.is_null() {
         String::new()
     } else {
         read_string(name as ffi::CFStringRef)
     };
-    unsafe { ffi::CFRelease(source) };
     if label.is_empty() {
         "layout name unavailable".to_owned()
     } else {
         format!("layout `{label}`")
+    }
+}
+
+/// An input source reference, released when the owner leaves the scope.
+///
+/// `TISGetInputSourceProperty` returns a value owned by the source, and its layout bytes stay valid
+/// only while the source lives, so the release must come after every translation that used them.
+struct Source(ffi::CFTypeRef);
+
+impl Drop for Source {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            unsafe { ffi::CFRelease(self.0) };
+        }
     }
 }
 
@@ -134,7 +148,6 @@ fn layout_data(source: ffi::CFTypeRef) -> Option<*const u8> {
         return None;
     }
     let data = unsafe { ffi::TISGetInputSourceProperty(source, ffi::kTISPropertyUnicodeKeyLayoutData) };
-    unsafe { ffi::CFRelease(source) };
     if data.is_null() {
         return None;
     }

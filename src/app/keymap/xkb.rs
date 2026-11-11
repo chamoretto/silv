@@ -148,7 +148,7 @@ mod tests {
 
     #[test]
     fn lookup_falls_back_from_a_variant_to_the_layout() {
-        assert_eq!(lookup("us-dvorak").is_some(), true);
+        assert!(lookup("us-dvorak").is_some());
         assert!(lookup("ru-phonetic_winkeys").is_some(), "variant falls back to ru");
         assert!(lookup("nosuchlayout").is_none());
     }
