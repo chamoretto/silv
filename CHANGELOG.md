@@ -11,22 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- *(keymap)* Make the macOS layout probe opt-in
-- *(keymap)* Keep the macOS probe on the main thread
-
-### Documentation
-
-- *(agents)* Record how to verify the macOS layout probe
-- *(contributing)* How to re-cut a release tag
-
-### Testing
-
-- *(cli)* Exercise the key map resolution end to end
-
-### Miscellaneous Tasks
-
-- Report the macOS keymap probe in its own step
-- Run the macOS tests single threaded
+- *(cliff)* Keep squashed PR commits in the changelog
 
 ## [0.1.4] - 2026-11-11
 
@@ -51,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Miscellaneous Tasks
 
 - Add the local three-platform gate script ([ef4b00c](https://github.com/chamoretto/silv/commit/ef4b00ca21bc7c40de462b833f4080cf2601942a))
+
+### Other
+
+- 0.1.4 macos fix ([#5](https://github.com/chamoretto/silv/issues/5)) ([1560d86](https://github.com/chamoretto/silv/commit/1560d865ef6218adc01c9c0eca4e280b3d840da1))
 
 ## [0.1.3] - 2026-11-10
 

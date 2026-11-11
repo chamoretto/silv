@@ -73,6 +73,18 @@ The hook skips rebase, cherry-pick and merge sequences, never re-enters its own 
 commit-based: each entry is one commit's subject line, and released sections link the commit
 SHA; `Unreleased` entries stay plain because their SHAs are not final yet.
 
+### PR titles are changelog entries
+
+A squash merge takes the PR title as the commit subject, and the changelog is commit based, so the PR
+title is what the release notes will say. Write it as a Conventional Commits subject
+(`fix(keymap): ...`, `feat(tui): ...`): `cliff.toml` groups entries by the type, and a title that is not
+conventional lands in the `Other` group. The list of commit subjects GitHub puts into the squash body is
+not part of the changelog; the PR body is for reviewers, the title is for users.
+
+A `(#123)` reference in a subject becomes a link to the issue or pull request. Commits with an
+unparseable subject are not filtered out (`filter_unconventional = false`): a whole PR vanishing from
+the changelog over one bad title is worse than an `Other` entry that a review catches.
+
 ## Release routine (maintainers)
 
 Run on `main` with a clean tree (`git status --short` prints nothing). The steps mirror
@@ -102,7 +114,8 @@ on GitHub, so run their local equivalents before pushing.
    [Re-cutting a release](#re-cutting-a-release-the-tag-already-exists).
 
    Then hand-check the result: `## [Unreleased]` first (the heading comes from the body template, the header ends at the marker), sections in Added / Changed / Deprecated /
-   Removed / Fixed / Security order, every `## [x.y.z]` heading has a link ref at the bottom (the `Unreleased` link points at the latest tag), and
+   Removed / Fixed / Security order (an `Other`, `Testing`, `Documentation` or `Miscellaneous Tasks`
+   group names a commit whose subject is outside that set), every `## [x.y.z]` heading has a link ref at the bottom (the `Unreleased` link points at the latest tag), and
    the header marker `<!-- git-cliff: end of header -->` appears exactly once. Full regeneration
    (`git-cliff -o CHANGELOG.md`, `git-cliff --tag ...`) is the supported mode: `--prepend` drops the
    reference links.

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 # A Tera template to be rendered for each release in the changelog.
 # One line per commit (commit-based); released sections link the commit SHA,
 # the Unreleased section stays plain because its SHAs are not final yet.
+# `commit.message` is the raw message of a commit that is not Conventional Commits, so the template
+# takes its first line: a squash merge of a PR carries the whole body in it, and the body has
+# paragraphs.
 # See https://keats.github.io/tera/#getting-started
 body = """
 {% if version %}\
@@ -31,7 +34,7 @@ body = """
     {% for commit in entry.commits %}
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
             {% if commit.breaking %}[**breaking**] {% endif %}\
-            {{ commit.message | upper_first }}\
+            {{ commit.message | split(pat="\n") | first | upper_first }}\
             {% if version %} ([{{ commit.id | truncate(length=7, end="") }}](<REPO>/commit/{{ commit.id }})){% endif %}\
     {% endfor %}
 {% endfor %}
@@ -74,7 +77,11 @@ postprocessors = [
 # See https://www.conventionalcommits.org
 conventional_commits = true
 # Exclude commits that do not match the conventional commits specification.
-filter_unconventional = true
+# Kept false on purpose: a squash merge takes the PR title as the commit subject, and a title that is
+# not Conventional Commits is unparseable. Filtering it out silently drops the whole PR from the
+# changelog (git-cliff only warns on stderr), which is worse than an entry in the `Other` group that a
+# review catches. `require_conventional` stays false: the same rule must not fail a build.
+filter_unconventional = false
 # Require all commits to be conventional.
 # Takes precedence over filter_unconventional.
 require_conventional = false
@@ -82,8 +89,9 @@ require_conventional = false
 split_commits = false
 # An array of regex based parsers to modify commit messages prior to further processing.
 commit_preprocessors = [
-    # Replace issue numbers with link templates to be updated in `changelog.postprocessors`.
-    #{ pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))"},
+    # GitHub appends `(#N)` to a squash merge subject; turn it into a reference. GitHub redirects the
+    # issue URL to the pull request when N is a PR, so one pattern covers both.
+    { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "([#${2}](<REPO>/issues/${2}))" },
 ]
 # Prevent commits that are breaking from being excluded by commit parsers.
 protect_breaking_commits = false
