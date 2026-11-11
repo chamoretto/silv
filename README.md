@@ -135,23 +135,29 @@ leaf    := FIELD ('=' | '!=' | '~' | '!~' | '^' | '!^') PATTERN
 
 Interactive mode exposes the same predicates as chips: `/` search, `F` guided filter wizard (field -> operator -> value,
 with an autocomplete dropdown of discovered fields; typing a full DSL
-expression and pressing Enter adds it as-is), chips are deleted with `x`/`d`.
+expression and pressing Enter adds it as-is), chips are deleted with `x`/`d`. Chips stack in rows: a chip that
+does not fit moves to the next row, the chip block shows up to four rows and scrolls to the focused chip.
+`Ctrl+Z` and `Ctrl+Shift+Z` undo and redo filter changes (adds, removals, clear).
 
 ## Interactive key map
 
 ```text
 /            focus search            F            filter wizard: field, operator, value
 Tab/BackTab  move focus              Enter        open record / apply input / sort focused field
-j k g G Pg   move row                s            sort focused field (asc, desc, off)
+j k f b g G  move row, page          s            sort focused field (asc, desc, off)
 c            field picker            d            delete focused filter, or focused column in header
 v            cycle render mode       t m          toggle timestamp / message column
 L r A        case, regex, scope      x X          clear search, clear all filters
+Ctrl+Z       undo filter change      Ctrl+Shift+Z redo the filter change
 Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort
 Space (row)  pick value, Enter adds  a filter by that value (the wizard asks the operator)
 Mouse        click row = detail, click header = drag mode, wheel = scroll
 ?            help                    q, Ctrl-C    quit
 ```
 
+`f`/`b` and `PgUp`/`PgDn` page the rows, `g`/`G` jump to the first and the last row, wheel scrolls.
+`Ctrl+Shift+Z` needs a terminal that reports Shift with a control key (Windows Terminal, conhost,
+kitty-protocol terminals); `Ctrl+Z` works everywhere.
 In the record detail overlay: `a` toggle column, `f`/`F` eq/neq filter from a value, `~` contains,
 `e`/`E` exists/missing, `v` toggle JSON, `Enter` field action menu, `Esc` close.
 

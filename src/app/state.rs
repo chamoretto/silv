@@ -270,6 +270,10 @@ pub struct AppState {
     keymap_mode: KeyMapMode,
     /// Rebuilds left: a layout switch mid-session is probed a few times, then left alone.
     keymap_rebuilds: u8,
+    /// Filter lists for Ctrl+Z: each entry is the list as it was before a change.
+    filter_undo: Vec<Vec<Predicate>>,
+    /// Filter lists for Ctrl+Shift+Z: each entry is a list taken over by undo.
+    filter_redo: Vec<Vec<Predicate>>,
     pub dirty: bool,
     pub quit: bool,
 }
@@ -279,6 +283,9 @@ const LIVE_REBUILD_LIMIT: usize = 30_000;
 
 /// Layout probes per session after an unmapped non-ASCII key: covers a few layout switches.
 const KEYMAP_REBUILDS: u8 = 3;
+
+/// Filter changes kept for Ctrl+Z: a few mistakes deep, cheap (the lists are short).
+const FILTER_HISTORY_LIMIT: usize = 32;
 
 impl AppState {
     pub fn new(store: Store, config: Config) -> Self {
@@ -321,6 +328,8 @@ impl AppState {
             keymap,
             keymap_mode,
             keymap_rebuilds: KEYMAP_REBUILDS,
+            filter_undo: Vec::new(),
+            filter_redo: Vec::new(),
             dirty: true,
             quit: false,
             config,
@@ -413,6 +422,7 @@ impl AppState {
     }
 
     pub fn add_filter(&mut self, predicate: Predicate) {
+        self.push_filter_history();
         self.filters.push(predicate);
         self.filter_cursor = self.filters.len() - 1;
         self.focus = Focus::FilterChips;
@@ -654,6 +664,7 @@ impl AppState {
 
     pub fn remove_filter(&mut self, index: usize) {
         if index < self.filters.len() {
+            self.push_filter_history();
             self.filters.remove(index);
             self.filter_cursor = self.filter_cursor.min(self.filters.len().saturating_sub(1));
             self.rebuild();
@@ -661,9 +672,52 @@ impl AppState {
     }
 
     pub fn clear_filters(&mut self) {
+        if self.filters.is_empty() {
+            return;
+        }
+        self.push_filter_history();
         self.filters.clear();
         self.filter_cursor = 0;
         self.rebuild();
+    }
+
+    /// Ctrl+Z: back to the filters as they were before the last add, removal or clear.
+    pub fn undo_filters(&mut self) {
+        self.swap_filter_lists(true);
+    }
+
+    /// Ctrl+Shift+Z: forward to the filters that undo took away.
+    pub fn redo_filters(&mut self) {
+        self.swap_filter_lists(false);
+    }
+
+    /// Records the filter list for Ctrl+Z; a new change ends the redo branch.
+    fn push_filter_history(&mut self) {
+        self.filter_undo.push(self.filters.clone());
+        if self.filter_undo.len() > FILTER_HISTORY_LIMIT {
+            self.filter_undo.remove(0);
+        }
+        self.filter_redo.clear();
+    }
+
+    /// Undo and redo are the same swap: the current list goes to one stack, the other pops.
+    fn swap_filter_lists(&mut self, backward: bool) {
+        let (from, to) = if backward {
+            (&mut self.filter_undo, &mut self.filter_redo)
+        } else {
+            (&mut self.filter_redo, &mut self.filter_undo)
+        };
+        let Some(list) = from.pop() else {
+            let token = if backward { "undo" } else { "redo" };
+            self.message = Some(format!("nothing to {token}"));
+            return;
+        };
+        to.push(self.filters.clone());
+        self.filters = list;
+        self.filter_cursor = self.filter_cursor.min(self.filters.len().saturating_sub(1));
+        self.rebuild();
+        let token = if backward { "undone" } else { "redone" };
+        self.message = Some(format!("filter change {token}"));
     }
 
     pub fn clear_search(&mut self) {
@@ -1078,6 +1132,15 @@ impl AppState {
             self.quit();
             return;
         }
+        if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.bind, KeyCode::Char('z')) {
+            if key.modifiers.contains(KeyModifiers::SHIFT) {
+                self.redo_filters();
+            } else {
+                self.undo_filters();
+            }
+            self.dirty = true;
+            return;
+        }
         if self.help {
             match key.bind {
                 KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.help = false,
@@ -1466,9 +1529,10 @@ impl AppState {
             Focus::Rows if self.row_mode == RowMode::Pick => {
                 "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
             },
-            Focus::Rows => {
-                "rows: [Enter] detail, [Space] filter by this value, [j]/[k] move, [g]/[G] first/last, [/] search, [F] filter, [c] fields"
-            },
+            Focus::Rows => concat!(
+                "rows: [Enter] detail, [Space] filter by this value, [j]/[k] move, [f]/[b] page, ",
+                "[g]/[G] first/last, [/] search, [F] filter, [c] fields"
+            ),
             _ => "",
         }
     }
@@ -1914,6 +1978,56 @@ mod tests {
         assert_eq!(state.filters.len(), 1);
         state.remove_filter(0);
         assert_eq!(state.view.len(), 2);
+    }
+
+    /// Leaf filter on `level`, for the history tests.
+    fn level_filter(state: &AppState, value: &str) -> Predicate {
+        crate::filter::build_leaf("level", LeafOp::Eq, Some(value), &state.filter_context()).expect("leaf")
+    }
+
+    const UNDO: KeyModifiers = KeyModifiers::CONTROL;
+    const REDO: KeyModifiers = KeyModifiers::CONTROL.union(KeyModifiers::SHIFT);
+
+    #[test]
+    fn ctrl_z_undoes_filter_changes_and_redo_restores_them() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        state.add_filter(level_filter(&state, "INFO"));
+        state.add_filter(level_filter(&state, "WARN"));
+        assert_eq!(state.filters.len(), 2);
+        state.handle_key(KeyCode::Char('z'), UNDO);
+        assert_eq!(state.filters.len(), 1);
+        state.handle_key(KeyCode::Char('z'), UNDO);
+        assert_eq!(state.filters.len(), 0);
+        assert_eq!(state.view.len(), 2);
+        state.handle_key(KeyCode::Char('z'), REDO);
+        assert_eq!(state.filters.len(), 1);
+        state.handle_key(KeyCode::Char('z'), REDO);
+        assert_eq!(state.filters.len(), 2);
+        assert!(state.message.as_deref().unwrap_or_default().contains("redone"));
+    }
+
+    #[test]
+    fn ctrl_z_restores_a_cleared_list_and_a_new_change_ends_the_redo() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        state.add_filter(level_filter(&state, "INFO"));
+        state.add_filter(level_filter(&state, "WARN"));
+        state.clear_filters();
+        assert!(state.filters.is_empty());
+        state.handle_key(KeyCode::Char('z'), UNDO);
+        assert_eq!(state.filters.len(), 2);
+        state.remove_filter(0);
+        state.add_filter(level_filter(&state, "INFO"));
+        state.handle_key(KeyCode::Char('z'), REDO);
+        assert_eq!(state.filters.len(), 2);
+        assert!(state.message.as_deref().unwrap_or_default().contains("nothing to redo"));
+    }
+
+    #[test]
+    fn undo_without_history_says_so() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}"]);
+        state.handle_key(KeyCode::Char('z'), UNDO);
+        assert!(state.message.as_deref().unwrap_or_default().contains("nothing to undo"));
+        assert!(!state.quit);
     }
 
     #[test]
