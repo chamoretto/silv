@@ -2258,7 +2258,7 @@ mod tests {
         state.columns.clear();
         state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
         state.focus = Focus::Rows;
-        assert!(state.prompts_text().contains("[Space] filter by this value"));
+        assert!(state.prompts_text().contains("[Space] select value to filter by"));
         state.focus = Focus::Header;
         assert!(state.prompts_text().contains("[Space] column drag"));
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
