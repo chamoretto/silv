@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - *(agents)* Record how to verify the macOS layout probe
+- *(contributing)* How to re-cut a release tag
 
 ### Testing
 

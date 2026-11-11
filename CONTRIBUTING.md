@@ -96,6 +96,11 @@ on GitHub, so run their local equivalents before pushing.
    git-cliff --tag v0.1.1 -o CHANGELOG.md
    ```
 
+   `--tag` names a tag that does not exist yet: it cuts the unreleased commits as that version. If the
+   tag exists, `--tag <existing>` prints two sections with the same name (the one it just cut, and the
+   one of the existing tag range), so an existing tag is regenerated without `--tag`, see
+   [Re-cutting a release](#re-cutting-a-release-the-tag-already-exists).
+
    Then hand-check the result: `## [Unreleased]` first (the heading comes from the body template, the header ends at the marker), sections in Added / Changed / Deprecated /
    Removed / Fixed / Security order, every `## [x.y.z]` heading has a link ref at the bottom (the `Unreleased` link points at the latest tag), and
    the header marker `<!-- git-cliff: end of header -->` appears exactly once. Full regeneration
@@ -140,3 +145,29 @@ on GitHub, so run their local equivalents before pushing.
 
 8. To republish notes or assets without moving the tag: Actions -> `release` -> Run workflow, and
    pass the tag. Never move a tag that was pushed: consumers pin on it.
+
+### Re-cutting a release (the tag already exists)
+
+Only when nothing was published from the tag yet (its GitHub release is deleted, no assets were
+downloaded): consumers pin on tag names, so a tag with downloads underneath it stays where it is.
+
+The changelog of a tag that exists is regenerated plainly: the section name comes from the tag, so
+`--tag` is not needed, and passing it adds a second section with the same name.
+
+```sh
+git checkout main
+git pull --ff-only                                  # main with the commits the release must carry
+git tag -d v0.1.4                                   # the local tag of the release being replaced
+git tag -a v0.1.4 -m "v0.1.4"                       # tentatively at main tip
+git-cliff -o CHANGELOG.md                           # one v0.1.4 section, its range ends at the tag
+git add CHANGELOG.md
+git commit -m "chore(release): prepare for v0.1.4"  # cliff.toml skips this commit
+git tag -f -a v0.1.4 -m "v0.1.4"                    # move the tag onto the release commit
+git-cliff -o CHANGELOG.md                           # must print no diff: tag and file agree
+git push origin main
+git push -f origin v0.1.4                           # pushing the tag starts the release workflow
+```
+
+The tag has to end up at the release commit, so that the `CHANGELOG.md` inside the tag carries the
+section. The last regeneration is the check: an empty diff means the tag range and the file agree, a
+non-empty one means they do not.
