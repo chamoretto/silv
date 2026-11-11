@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(cli)* Exercise the key map resolution end to end
 
+### Miscellaneous Tasks
+
+- Report the macOS keymap probe in its own step
+
 ## [0.1.4] - 2026-11-11
 
 ### Added

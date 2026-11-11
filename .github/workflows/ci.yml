@@ -44,3 +44,13 @@ jobs:
 
       - name: test
         run: cargo test --all-targets
+
+      # The macOS layout probe is opt-in (src/app/keymap/macos.rs) and unverified on a headless
+      # runner. Running it here means a probe problem names the probe, instead of looking like an
+      # abort inside the test binary; continue-on-error keeps it informative, not a gate.
+      - name: macos keymap probe (opt-in, informational)
+        if: matrix.os == 'macos-latest'
+        env:
+          SILV_KEYMAP_PROBE: "1"
+        continue-on-error: true
+        run: ./target/debug/silv --key-map-show
