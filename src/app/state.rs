@@ -1132,14 +1132,20 @@ impl AppState {
             self.quit();
             return;
         }
-        if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.bind, KeyCode::Char('z')) {
-            if key.modifiers.contains(KeyModifiers::SHIFT) {
-                self.redo_filters();
-            } else {
-                self.undo_filters();
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            match key.bind {
+                KeyCode::Char('z') => {
+                    self.undo_filters();
+                    self.dirty = true;
+                    return;
+                },
+                KeyCode::Char('y') => {
+                    self.redo_filters();
+                    self.dirty = true;
+                    return;
+                },
+                _ => {},
             }
-            self.dirty = true;
-            return;
         }
         if self.help {
             match key.bind {
@@ -1534,6 +1540,16 @@ impl AppState {
                 "[g]/[G] first/last, [/] search, [F] filter, [c] fields"
             ),
             _ => "",
+        }
+    }
+
+    /// Filter history keys, on a second prompt line in the plain rows view.
+    pub fn prompts_history(&self) -> Option<&'static str> {
+        match self.focus {
+            Focus::Rows if self.row_mode == RowMode::Normal => {
+                Some("filters: [Ctrl+Z] undo last filter, [Ctrl+Y] redo last deleted filter")
+            },
+            _ => None,
         }
     }
 
@@ -1985,8 +2001,7 @@ mod tests {
         crate::filter::build_leaf("level", LeafOp::Eq, Some(value), &state.filter_context()).expect("leaf")
     }
 
-    const UNDO: KeyModifiers = KeyModifiers::CONTROL;
-    const REDO: KeyModifiers = KeyModifiers::CONTROL.union(KeyModifiers::SHIFT);
+    const CONTROL: KeyModifiers = KeyModifiers::CONTROL;
 
     #[test]
     fn ctrl_z_undoes_filter_changes_and_redo_restores_them() {
@@ -1994,14 +2009,14 @@ mod tests {
         state.add_filter(level_filter(&state, "INFO"));
         state.add_filter(level_filter(&state, "WARN"));
         assert_eq!(state.filters.len(), 2);
-        state.handle_key(KeyCode::Char('z'), UNDO);
+        state.handle_key(KeyCode::Char('z'), CONTROL);
         assert_eq!(state.filters.len(), 1);
-        state.handle_key(KeyCode::Char('z'), UNDO);
+        state.handle_key(KeyCode::Char('z'), CONTROL);
         assert_eq!(state.filters.len(), 0);
         assert_eq!(state.view.len(), 2);
-        state.handle_key(KeyCode::Char('z'), REDO);
+        state.handle_key(KeyCode::Char('y'), CONTROL);
         assert_eq!(state.filters.len(), 1);
-        state.handle_key(KeyCode::Char('z'), REDO);
+        state.handle_key(KeyCode::Char('y'), CONTROL);
         assert_eq!(state.filters.len(), 2);
         assert!(state.message.as_deref().unwrap_or_default().contains("redone"));
     }
@@ -2013,11 +2028,11 @@ mod tests {
         state.add_filter(level_filter(&state, "WARN"));
         state.clear_filters();
         assert!(state.filters.is_empty());
-        state.handle_key(KeyCode::Char('z'), UNDO);
+        state.handle_key(KeyCode::Char('z'), CONTROL);
         assert_eq!(state.filters.len(), 2);
         state.remove_filter(0);
         state.add_filter(level_filter(&state, "INFO"));
-        state.handle_key(KeyCode::Char('z'), REDO);
+        state.handle_key(KeyCode::Char('y'), CONTROL);
         assert_eq!(state.filters.len(), 2);
         assert!(state.message.as_deref().unwrap_or_default().contains("nothing to redo"));
     }
@@ -2025,9 +2040,19 @@ mod tests {
     #[test]
     fn undo_without_history_says_so() {
         let mut state = state_of(&["{\"level\":\"INFO\"}"]);
-        state.handle_key(KeyCode::Char('z'), UNDO);
+        state.handle_key(KeyCode::Char('z'), CONTROL);
         assert!(state.message.as_deref().unwrap_or_default().contains("nothing to undo"));
         assert!(!state.quit);
+    }
+
+    #[test]
+    fn russian_layout_reaches_undo_and_redo() {
+        let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
+        state.add_filter(level_filter(&state, "INFO"));
+        state.handle_key(KeyCode::Char('я'), CONTROL); // the physical z key
+        assert!(state.filters.is_empty());
+        state.handle_key(KeyCode::Char('н'), CONTROL); // the physical y key
+        assert_eq!(state.filters.len(), 1);
     }
 
     #[test]
