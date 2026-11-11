@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - *(cliff)* Keep squashed PR commits in the changelog
+- *(changelog)* Regenerated CHANGELOG.md
 
 ## [0.1.4] - 2026-11-11
 
@@ -28,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(tui)* Wrap prompt lines and separate them from the rows ([2aa2a36](https://github.com/chamoretto/silv/commit/2aa2a36a8437a984eb1eff5b36bb89a3cd5bdec4))
 - *(changelog)* One Unreleased heading and a valid Unreleased link ([2e29472](https://github.com/chamoretto/silv/commit/2e2947293035f3fc072120a2ef4f0184e13f9dfb))
 - *(keymap)* Keep macOS layout sources alive while translating ([6ff979a](https://github.com/chamoretto/silv/commit/6ff979a89e5f12e8ae3edc184ed450eb452e9b49))
+- *(keymap)* Probe the macOS layout on the main thread ([#5](https://github.com/chamoretto/silv/issues/5)) ([4be7a96](https://github.com/chamoretto/silv/commit/4be7a9678696c63c1212a9a9921efb07a7ed0e11))
 
 ### Testing
 
@@ -36,10 +38,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Miscellaneous Tasks
 
 - Add the local three-platform gate script ([ef4b00c](https://github.com/chamoretto/silv/commit/ef4b00ca21bc7c40de462b833f4080cf2601942a))
-
-### Other
-
-- 0.1.4 macos fix ([#5](https://github.com/chamoretto/silv/issues/5)) ([1560d86](https://github.com/chamoretto/silv/commit/1560d865ef6218adc01c9c0eca4e280b3d840da1))
 
 ## [0.1.3] - 2026-11-10
 
