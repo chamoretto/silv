@@ -62,8 +62,8 @@ on GitHub, so run their local equivalents before pushing.
    git-cliff --tag v0.1.1 -o CHANGELOG.md
    ```
 
-   Then hand-check the result: `## [Unreleased]` first, sections in Added / Changed / Deprecated /
-   Removed / Fixed / Security order, every `## [x.y.z]` heading has a link ref at the bottom, and
+   Then hand-check the result: `## [Unreleased]` first (the heading comes from the body template, the header ends at the marker), sections in Added / Changed / Deprecated /
+   Removed / Fixed / Security order, every `## [x.y.z]` heading has a link ref at the bottom (the `Unreleased` link points at the latest tag), and
    the header marker `<!-- git-cliff: end of header -->` appears exactly once. Full regeneration
    (`git-cliff -o CHANGELOG.md`, `git-cliff --tag ...`) is the supported mode: `--prepend` drops the
    reference links.
