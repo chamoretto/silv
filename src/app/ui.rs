@@ -42,17 +42,26 @@ use crate::render::table as table_layout;
 
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
+/// Chip rows shown at once; the list is windowed around the focused chip beyond that.
+const CHIP_ROWS_MAX: usize = 4;
 const CHIPS_HINT: &str = "[F] to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
-const CHIP_PROMPTS: &str =
-    "filters: [d/Backspace] remove, [Enter] edit, [Left/Right] select, [x] clear all, [F] add, [Esc] rows";
+const CHIP_PROMPTS: &str = concat!(
+    "filters: [d/Backspace] remove, [Enter] edit, [Left/Right] select, [x] clear all, ",
+    "[Ctrl+Z]/[Ctrl+Shift+Z] undo and redo the filter list, [F] add, [Esc] rows"
+);
 
 /// Renders the whole screen.
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
-    let chips_height: u16 = match (state.filters.is_empty(), state.focus == Focus::FilterChips) {
-        (true, _) => 1,
-        (false, true) => 3,
-        (false, false) => 2,
+    let focused_chip = (state.focus == Focus::FilterChips).then_some(state.filter_cursor);
+    let chips = chip_layout(&state.filters, usize::from(area.width), focused_chip);
+    let rows = u16::try_from(chips.rows.len()).unwrap_or(1);
+    let chips_height: u16 = if chips.rows.is_empty() {
+        1
+    } else if state.focus == Focus::FilterChips {
+        rows + 2
+    } else {
+        rows + 1
     };
     let rects = Layout::vertical([
         Constraint::Length(1),
@@ -72,7 +81,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.areas.status = rects[5];
 
     draw_search(frame, state, rects[0]);
-    draw_chips(frame, state, rects[1]);
+    draw_chips(frame, state, rects[1], &chips);
     draw_filter_input(frame, state, rects[2]);
     draw_rows(frame, state, rects[3]);
     draw_prompts(frame, state, rects[4]);
@@ -144,44 +153,100 @@ fn cursor_spans(text: &str, cursor: usize, focused: bool) -> Vec<Span<'static>> 
     spans
 }
 
-fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect) {
+fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect, chips: &ChipLayout) {
     state.chip_cells.clear();
     let hint_base = Style::default().fg(Color::DarkGray);
     let mut hint_spans = vec![Span::styled("filters: ", hint_base)];
     hint_spans.extend(key_spans(CHIPS_HINT, hint_base));
     let mut lines = vec![Line::from(hint_spans)];
-    if state.filters.is_empty() {
+    if chips.rows.is_empty() {
         frame.render_widget(Paragraph::new(lines), area);
         return;
     }
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut x = 0u16;
-    for (index, predicate) in state.filters.iter().enumerate() {
-        let focused = state.focus == Focus::FilterChips && state.filter_cursor == index;
-        let base = if focused {
-            Style::default().add_modifier(Modifier::REVERSED)
-        } else {
-            Style::default()
-        };
-        let brackets = base.fg(Color::DarkGray);
-        let body = predicate_spans(predicate, base);
-        let body_width: usize = body.iter().map(span_width).sum();
-        let length = u16::try_from(body_width + 3).unwrap_or(u16::MAX);
-        spans.push(Span::styled("[", brackets));
-        spans.extend(body);
-        spans.push(Span::styled("] ", brackets));
-        let start = x;
-        state
-            .chip_cells
-            .push((start, start.saturating_add(length.saturating_sub(1)), index, 1));
-        x = x.saturating_add(length);
+    let last = chips.rows.len() - 1;
+    for (row, indices) in chips.rows.iter().enumerate() {
+        let mut spans: Vec<Span<'static>> = Vec::new();
+        let mut x = 0u16;
+        for &index in indices {
+            let focused = state.focus == Focus::FilterChips && state.filter_cursor == index;
+            let base = if focused {
+                Style::default().add_modifier(Modifier::REVERSED)
+            } else {
+                Style::default()
+            };
+            let brackets = base.fg(Color::DarkGray);
+            let body = predicate_spans(&state.filters[index], base);
+            let body_width: usize = body.iter().map(span_width).sum();
+            let length = u16::try_from(body_width + 3).unwrap_or(u16::MAX);
+            spans.push(Span::styled("[", brackets));
+            spans.extend(body);
+            spans.push(Span::styled("] ", brackets));
+            let start = x;
+            let cell_row = u16::try_from(row + 1).unwrap_or(1);
+            state
+                .chip_cells
+                .push((start, start.saturating_add(length.saturating_sub(1)), index, cell_row));
+            x = x.saturating_add(length);
+        }
+        if row == last && chips.hidden > 0 {
+            spans.push(Span::styled(format!(" +{} filter(s) out of view", chips.hidden), hint_base));
+        }
+        lines.push(Line::from(spans));
     }
-    lines.push(Line::from(spans));
     if state.focus == Focus::FilterChips {
         let prompt = key_spans(CHIP_PROMPTS, Style::default().fg(Color::DarkGray));
         lines.push(Line::from(prompt));
     }
     frame.render_widget(Paragraph::new(lines), area);
+}
+
+/// Chips of one visible row (their indices) and how many chips the row window hides.
+struct ChipLayout {
+    rows: Vec<Vec<usize>>,
+    hidden: usize,
+}
+
+/// Chip width, brackets and the trailing gap included.
+fn chip_width(predicate: &Predicate) -> usize {
+    let body: usize = predicate_spans(predicate, Style::default())
+        .iter()
+        .map(span_width)
+        .sum();
+    body + 3
+}
+
+/// Chips laid out in rows of `width`: a chip that does not fit moves to the next row, rows are
+/// capped at `CHIP_ROWS_MAX` and windowed so the focused chip is on screen.
+fn chip_layout(filters: &[Predicate], width: usize, focused: Option<usize>) -> ChipLayout {
+    let width = width.max(8);
+    let mut rows: Vec<Vec<usize>> = Vec::new();
+    let mut used = 0usize;
+    for (index, predicate) in filters.iter().enumerate() {
+        let length = chip_width(predicate);
+        match rows.last_mut() {
+            Some(row) if used.saturating_add(length) <= width => {
+                row.push(index);
+                used += length;
+            },
+            _ => {
+                rows.push(vec![index]);
+                used = length;
+            },
+        }
+    }
+    let mut first = 0usize;
+    if rows.len() > CHIP_ROWS_MAX {
+        let focused_row = focused
+            .and_then(|index| rows.iter().position(|row| row.contains(&index)))
+            .unwrap_or(0);
+        first = focused_row.saturating_sub(CHIP_ROWS_MAX - 1);
+    }
+    let visible: Vec<Vec<usize>> = rows.iter().skip(first).take(CHIP_ROWS_MAX).cloned().collect();
+    let shown: usize = visible.iter().map(Vec::len).sum();
+    ChipLayout {
+        rows: visible,
+        hidden: filters.len().saturating_sub(shown),
+    }
 }
 
 /// The mode-specific control keys, on the line above the status bar.
@@ -730,5 +795,41 @@ mod tests {
             .find(|span| span.content.as_ref() == " = ")
             .expect("operator span");
         assert_eq!(eq.style.fg, Some(Color::Green));
+    }
+
+    /// Leaf `field = x`: chip text width is `name.len() + 6`, chip width `+ 3` for the brackets.
+    fn leaf(field: &str) -> Predicate {
+        Predicate::eq(FieldPath::from_key(field), Matcher::compile("x", MatchKind::Glob, true, false).expect("glob"))
+    }
+
+    fn leaves(count: usize) -> Vec<Predicate> {
+        (0..count).map(|index| leaf(&format!("field{index:02}"))).collect()
+    }
+
+    #[test]
+    fn chips_move_to_the_next_row_when_they_stop_fitting() {
+        // Width 12 per chip: two fit in 30 columns, the third wraps.
+        let layout = chip_layout(&leaves(3), 30, None);
+        assert_eq!(layout.rows, vec![vec![0, 1], vec![2]]);
+        assert_eq!(layout.hidden, 0);
+    }
+
+    #[test]
+    fn chip_rows_are_capped_and_windowed_to_the_focused_chip() {
+        // One chip per row at width 14: the window follows the focused chip.
+        let filters = leaves(10);
+        let layout = chip_layout(&filters, 14, Some(9));
+        assert_eq!(layout.rows, vec![vec![6], vec![7], vec![8], vec![9]]);
+        assert_eq!(layout.hidden, 6);
+        let top = chip_layout(&filters, 14, Some(0));
+        assert_eq!(top.rows, vec![vec![0], vec![1], vec![2], vec![3]]);
+        assert_eq!(top.hidden, 6);
+    }
+
+    #[test]
+    fn an_overlong_chip_gets_its_own_row() {
+        let filters = vec![leaf("a"), leaf(&"f".repeat(60)), leaf("b")];
+        let layout = chip_layout(&filters, 20, None);
+        assert_eq!(layout.rows, vec![vec![0], vec![1], vec![2]]);
     }
 }

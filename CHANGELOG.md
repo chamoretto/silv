@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - *(tui)* Map keyboard layouts to QWERTY bindings on every platform
+- *(tui)* Filter undo/redo keys and chip rows that wrap
 
 ### Fixed
 
