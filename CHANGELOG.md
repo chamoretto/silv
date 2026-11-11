@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - *(tui)* Match key bindings on the physical QWERTY key for non-Latin layouts
+- *(tui)* Wrap prompt lines and separate them from the rows
 
 ## [0.1.3] - 2026-11-10
 

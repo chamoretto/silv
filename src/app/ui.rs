@@ -63,12 +63,14 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     } else {
         rows + 1
     };
-    let prompts_height: u16 = u16::from(state.prompts_history().is_some()) + 1;
+    let prompts = prompt_lines(state, usize::from(area.width));
+    let prompts_height = u16::try_from(prompts.len()).unwrap_or(1);
     let rects = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(chips_height),
         Constraint::Length(1),
         Constraint::Min(3),
+        Constraint::Length(1),
         Constraint::Length(prompts_height),
         Constraint::Length(1),
     ])
@@ -78,15 +80,15 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.areas.chips = rects[1];
     state.areas.filter = rects[2];
     state.areas.rows = rects[3];
-    state.areas.prompts = rects[4];
-    state.areas.status = rects[5];
+    state.areas.prompts = rects[5];
+    state.areas.status = rects[6];
 
     draw_search(frame, state, rects[0]);
     draw_chips(frame, state, rects[1], &chips);
     draw_filter_input(frame, state, rects[2]);
     draw_rows(frame, state, rects[3]);
-    draw_prompts(frame, state, rects[4]);
-    draw_status(frame, state, rects[5]);
+    draw_prompts(frame, &prompts, rects[5]);
+    draw_status(frame, state, rects[6]);
     draw_wizard_dropdown(frame, state, area);
 
     if let Some(picker) = state.picker.as_ref() {
@@ -250,18 +252,48 @@ fn chip_layout(filters: &[Predicate], width: usize, focused: Option<usize>) -> C
     }
 }
 
-/// The mode-specific control keys, on the line(s) above the status bar.
-fn draw_prompts(frame: &mut Frame, state: &AppState, area: Rect) {
-    let text = state.prompts_text();
-    if text.is_empty() {
+/// The mode-specific control keys, on the lines above the status bar.
+fn draw_prompts(frame: &mut Frame, lines: &[Line<'static>], area: Rect) {
+    if lines.is_empty() {
         return;
     }
+    frame.render_widget(Paragraph::new(lines.to_vec()), area);
+}
+
+/// Prompt text wrapped into lines of `width`, plus the history line of the rows view.
+fn prompt_lines(state: &AppState, width: usize) -> Vec<Line<'static>> {
     let style = Style::default().fg(Color::DarkGray);
-    let mut lines = vec![Line::from(key_spans(text, style))];
+    let mut texts = vec![state.prompts_text()];
     if let Some(history) = state.prompts_history() {
-        lines.push(Line::from(key_spans(history, style)));
+        texts.push(history);
     }
-    frame.render_widget(Paragraph::new(lines), area);
+    texts
+        .into_iter()
+        .filter(|text| !text.is_empty())
+        .flat_map(|text| wrap_prompt(text, width.max(24)))
+        .map(|text| Line::from(key_spans(text.as_str(), style)))
+        .collect()
+}
+
+/// Breaks `text` into lines of at most `width` columns at word boundaries; a word longer than the
+/// width stays on its own line and is clipped by the terminal.
+fn wrap_prompt(text: &str, width: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let add = word.chars().count() + usize::from(!line.is_empty());
+        if !line.is_empty() && line.chars().count() + add > width {
+            lines.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(word);
+    }
+    if !line.is_empty() {
+        lines.push(line);
+    }
+    lines
 }
 
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
@@ -800,6 +832,22 @@ mod tests {
             .find(|span| span.content.as_ref() == " = ")
             .expect("operator span");
         assert_eq!(eq.style.fg, Some(Color::Green));
+    }
+
+    #[test]
+    fn prompts_wrap_at_word_boundaries() {
+        let lines = wrap_prompt("rows: [Enter] detail, [j]/[k] move", 20);
+        assert_eq!(lines, ["rows: [Enter]", "detail, [j]/[k] move"]);
+        let joined = lines.join(" ");
+        assert_eq!(joined, "rows: [Enter] detail, [j]/[k] move");
+        assert!(lines.iter().all(|line| line.chars().count() <= 20));
+    }
+
+    #[test]
+    fn prompts_keep_their_own_line_when_fitting_and_when_overlong() {
+        assert_eq!(wrap_prompt("filters: [Ctrl+Z] undo", 60), ["filters: [Ctrl+Z] undo"]);
+        assert_eq!(wrap_prompt("a bb [Ctrl+Shift+Enter]", 8), ["a bb", "[Ctrl+Shift+Enter]"]);
+        assert_eq!(wrap_prompt("", 8), Vec::<String>::new());
     }
 
     /// Leaf `field = x`: chip text width is `name.len() + 6`, chip width `+ 3` for the brackets.
