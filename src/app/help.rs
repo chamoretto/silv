@@ -24,7 +24,7 @@ const LINES: [&str; 26] = [
     "  c            field picker            d            delete focused filter, or focused column in header",
     "  v            cycle render mode       t m          toggle timestamp / message column",
     "  L r A        case, regex, scope      x X          clear search, clear all filters",
-    "  Ctrl+Z       undo last filter       Ctrl+Shift+Z redo the undone filter change",
+    "  Ctrl+Z       undo last filter       Ctrl+Y        redo the undone filter change",
     "  Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort",
     "  Space (row)  pick value, Enter =    filter by that value (asks the operator); Esc leaves the mode",
     "  Mouse        click row = detail, click header = drag mode, wheel = scroll (PgUp/PgDn too)",

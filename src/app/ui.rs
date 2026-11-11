@@ -47,7 +47,7 @@ const CHIP_ROWS_MAX: usize = 4;
 const CHIPS_HINT: &str = "[F] to filter by field (field=pattern, field!=pattern, field^, not a and (b or c))";
 const CHIP_PROMPTS: &str = concat!(
     "filters: [d/Backspace] remove, [Enter] edit, [Left/Right] select, [x] clear all, ",
-    "[Ctrl+Z]/[Ctrl+Shift+Z] undo and redo the filter list, [F] add, [Esc] rows"
+    "[Ctrl+Z]/[Ctrl+Y] undo and redo the filter list, [F] add, [Esc] rows"
 );
 
 /// Renders the whole screen.
@@ -63,12 +63,13 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     } else {
         rows + 1
     };
+    let prompts_height: u16 = u16::from(state.prompts_history().is_some()) + 1;
     let rects = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(chips_height),
         Constraint::Length(1),
         Constraint::Min(3),
-        Constraint::Length(1),
+        Constraint::Length(prompts_height),
         Constraint::Length(1),
     ])
     .split(area);
@@ -249,14 +250,18 @@ fn chip_layout(filters: &[Predicate], width: usize, focused: Option<usize>) -> C
     }
 }
 
-/// The mode-specific control keys, on the line above the status bar.
+/// The mode-specific control keys, on the line(s) above the status bar.
 fn draw_prompts(frame: &mut Frame, state: &AppState, area: Rect) {
     let text = state.prompts_text();
     if text.is_empty() {
         return;
     }
-    let spans = key_spans(text, Style::default().fg(Color::DarkGray));
-    frame.render_widget(Paragraph::new(Line::from(spans)), area);
+    let style = Style::default().fg(Color::DarkGray);
+    let mut lines = vec![Line::from(key_spans(text, style))];
+    if let Some(history) = state.prompts_history() {
+        lines.push(Line::from(key_spans(history, style)));
+    }
+    frame.render_widget(Paragraph::new(lines), area);
 }
 
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
