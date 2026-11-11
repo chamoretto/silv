@@ -43,14 +43,21 @@ jobs:
         run: cargo build --all-targets
 
       - name: test
+        if: matrix.os != 'macos-latest'
         run: cargo test --all-targets
 
-      # The macOS layout probe is opt-in (src/app/keymap/macos.rs) and unverified on a headless
-      # runner. Running it here means a probe problem names the probe, instead of looking like an
-      # abort inside the test binary; continue-on-error keeps it informative, not a gate.
-      - name: macos keymap probe (opt-in, informational)
+      # The macOS layout probe calls the Carbon input source API, which only answers on the thread
+      # that owns the GUI session (src/app/keymap/macos.rs). The test harness runs tests on worker
+      # threads, so the probe has to be run where it is allowed: single threaded runs keep them on
+      # the main thread, and the probe test exercises it. Multi-threaded runs skip that test.
+      - name: test (macos, single threaded)
         if: matrix.os == 'macos-latest'
-        env:
-          SILV_KEYMAP_PROBE: "1"
+        run: cargo test --all-targets -- --test-threads=1
+
+      # Key map resolution as the user sees it, printed by the same binary the tests built. The probe
+      # of a headless runner can find no keyboard layout input source, so this step reports and does
+      # not gate: a probe problem shows here, named, instead of looking like an abort in a test binary.
+      - name: key map report
+        if: matrix.os == 'macos-latest'
         continue-on-error: true
         run: ./target/debug/silv --key-map-show

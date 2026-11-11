@@ -39,6 +39,21 @@ The WSL gate needs a Rust toolchain in the distro (`SILV_WSL_DISTRO` overrides t
 `Ubuntu-24.04`). The macOS gate is a cross compile: checks and clippy only, its tests have to run on a
 Mac, which CI does.
 
+### macOS tests run single threaded
+
+`cargo test` on macOS needs `--test-threads=1`:
+
+```sh
+cargo test --all-targets -- --test-threads=1
+```
+
+The macOS key map probe reads the Carbon text input source API, which answers only on the thread that
+owns the GUI session. The test harness runs tests on parallel worker threads; calling that API from
+one aborts the whole test binary with SIGABRT, with no Rust panic and no reference to the probe in
+the output. The probe guards itself with `pthread_main_np()` and degrades to the built-in table off
+the main thread, so a multi-threaded run survives and reports the probe test as skipped, and a
+single threaded run executes it. CI passes the flag on the macOS job.
+
 Prefer feature branches with pull requests: `ci.yml` runs the identical gate on `pull_request`, so
 `main` stays releasable and a platform-gated break is caught before it lands.
 

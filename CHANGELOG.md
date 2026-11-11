@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Miscellaneous Tasks
 
 - Report the macOS keymap probe in its own step
+- Run the macOS tests single threaded
 
 ## [0.1.4] - 2026-11-11
 
