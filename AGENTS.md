@@ -52,6 +52,10 @@ evolves. Move longer material into `docs/` and link it from here.
 
 ## Useful commands
 
+Run the full local CI gate (Windows, WSL for the unix-only keymap code, macOS cross check) before
+pushing: `pwsh -File scripts/ci-local.ps1`. The single-platform commands below are the fallback when
+one gate needs repeating in isolation.
+
 Cross check the macOS build from Windows (no linking, FFI declarations included):
 
 ```powershell

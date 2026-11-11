@@ -23,6 +23,25 @@ cargo test --all-targets
 This project is developed with AI agents (see the README AI disclosure). If you used an AI
 assistant in your PR, say so in the PR description and be ready to explain the code.
 
+## Local CI gate
+
+CI runs fmt, clippy, build and test on Linux, Windows and macOS. Parts of the code are platform gated
+(the xkb keymap compiles only on unix, the macOS keymap only on macOS), so checking on one platform is
+not enough. Run the same gates locally before pushing:
+
+```powershell
+pwsh -File scripts/ci-local.ps1                        # all gates
+pwsh -File scripts/ci-local.ps1 -Quick                 # lib tests only: the unix gate is the slow build
+pwsh -File scripts/ci-local.ps1 -SkipWsl -SkipMacos    # the Windows gate only
+```
+
+The WSL gate needs a Rust toolchain in the distro (`SILV_WSL_DISTRO` overrides the default
+`Ubuntu-24.04`). The macOS gate is a cross compile: checks and clippy only, its tests have to run on a
+Mac, which CI does.
+
+Prefer feature branches with pull requests: `ci.yml` runs the identical gate on `pull_request`, so
+`main` stays releasable and a platform-gated break is caught before it lands.
+
 ## Changelog automation (git-cliff)
 
 The `Unreleased` section of `CHANGELOG.md` is kept in step with history automatically:
