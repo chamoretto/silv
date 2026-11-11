@@ -7,15 +7,20 @@
 //! per-layout table. Latin layouts (QWERTY, QWERTZ, AZERTY, Dvorak) are ASCII-capable, they report
 //! themselves, the map is empty and bindings follow the typed character.
 //!
-//! The probe is opt-in (`SILV_KEYMAP_PROBE=1`, see `probe_policy`), because the FFI is not safe:
-//! `UCKeyTranslate` is a Carbon entry point whose shape moved. The declaration below is the 10
-//! parameter form of the classic recipe; the entry point recent systems export takes a
-//! `KeyboardLayout *` state pointer first (`UCKeyTranslateNew`), so a call through the old shape
-//! passes arguments one register off, writes through a pointer built from layout bytes, and can
-//! abort the process. A headless CI runner is enough to hit it: the test binary died with SIGABRT
-//! mid-run. Verify on a Mac with `SILV_KEYMAP_PROBE=1 silv --key-map-show` before trusting it, and
-//! replace this module with `UCKeyTranslateNew` plus a proper state struct, or a maintained Carbon
-//! binding, once there is a Mac to check the result on.
+//! # Thread affinity
+//!
+//! The Carbon text input system belongs to the thread that owns the GUI session. Asking it for the
+//! current input source, and translating with the layout bytes that answer returns, is only allowed
+//! on that thread. From any other thread the calls abort the process: SIGABRT with no Rust panic,
+//! which is the shape of the macOS `cargo test` crash: the harness runs tests on parallel worker
+//! threads, and one of them calls the probe (<https://github.com/deskflow/deskflow/issues/10136>
+//! reports the same abort).
+//!
+//! `on_main_thread` guards the probe: off the main thread `build` yields an empty map, so the
+//! bindings fall back to the built-in table, and `detail` says so. The consequence for tests is
+//! that the probe test probes only under `cargo test -- --test-threads=1`, where the harness keeps
+//! tests on the main thread: the macOS CI job passes that flag, and a multi-threaded run reports
+//! the test as skipped.
 
 use std::collections::BTreeMap;
 use std::ffi::c_void;
@@ -43,6 +48,8 @@ const UTF8_ENCODING: u32 = 0x0800_0100;
     reason = "carbon and core foundation declarations mirror the C headers"
 )]
 mod ffi {
+    use std::ffi::c_int;
+
     use super::c_void;
 
     // Opaque Core Foundation references: pointers, typed only to keep the signatures readable.
@@ -67,9 +74,10 @@ mod ffi {
         pub unsafe fn TISCopyCurrentASCIICapableKeyboardLayoutInputSource() -> CFTypeRef;
         pub unsafe fn TISGetInputSourceProperty(source: CFTypeRef, key: CFStringRef) -> CFTypeRef;
 
-        // The 10 parameter form of the classic recipe. Recent systems export a wider entry point
-        // (a state pointer first), which is why the probe that calls it is opt-in, see the module
-        // documentation.
+        // The 10 parameter form of the classic recipe, verified on a Mac. Recent systems also
+        // export a wider entry point under this name (`UCKeyTranslateNew`, a `KeyboardLayout *`
+        // state pointer first): if a system ever aborts here, that declaration plus a real state
+        // struct is the first thing to replace.
         #[allow(clippy::too_many_arguments, reason = "the C signature has ten parameters")]
         pub unsafe fn UCKeyTranslate(
             keyboard: *const u8,
@@ -85,10 +93,25 @@ mod ffi {
         ) -> OSStatus;
         pub unsafe fn LMGetKbdType() -> u8;
     }
+
+    // libSystem is linked by every macOS target, no link attribute needed.
+    unsafe extern "C" {
+        /// Non-zero when the calling thread is the main thread of the process.
+        pub fn pthread_main_np() -> c_int;
+    }
+}
+
+/// True when the calling thread may use the input source API: the main thread of the GUI session.
+pub fn on_main_thread() -> bool {
+    unsafe { ffi::pthread_main_np() != 0 }
 }
 
 /// Pairs of layout character and QWERTY character of the same physical key.
 pub fn build() -> Vec<(char, char)> {
+    // Off the main thread the input source API aborts the process, so the probe degrades to empty.
+    if !on_main_thread() {
+        return Vec::new();
+    }
     // The sources must outlive the translations: the layout bytes come from data they own.
     let current_source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
     let ascii_source = Source(unsafe { ffi::TISCopyCurrentASCIICapableKeyboardLayoutInputSource() });
@@ -125,6 +148,9 @@ pub fn build() -> Vec<(char, char)> {
 
 /// One line description of what was probed, for `--key-map-show`.
 pub fn detail() -> String {
+    if !on_main_thread() {
+        return "input source API needs the main thread, builtin table".to_owned();
+    }
     let source = Source(unsafe { ffi::TISCopyCurrentKeyboardLayoutInputSource() });
     if source.0.is_null() {
         return "no keyboard layout input source".to_owned();

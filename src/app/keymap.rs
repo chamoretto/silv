@@ -12,8 +12,8 @@
 //!   `ToUnicodeEx`; the scan code they yield is looked up in the ANSI scan code table. Every
 //!   layout Windows provides is covered, no per-layout table and no layout needs installing.
 //! - macOS: the current layout is translated with `UCKeyTranslate` and compared against the
-//!   current ASCII-capable layout, which is the US one for every non-Latin layout. The probe is
-//!   opt-in (`SILV_KEYMAP_PROBE=1`), see `macos.rs` for why.
+//!   current ASCII-capable layout, which is the US one for every non-Latin layout. The input source
+//!   API is main thread only, see `macos.rs`.
 //! - Linux and other unix: X11 keymap tables in `layouts/`, generated from xkeyboard-config
 //!   and selected by `XKB_DEFAULT_LAYOUT`.
 //! - Everywhere: `builtin.txt` as a fallback, so legacy consoles keep the Russian bindings,
@@ -332,7 +332,7 @@ fn platform_map() -> KeyMap {
 /// One line description of the platform probe, for `--key-map-show`.
 fn platform_detail() -> String {
     if !probe_enabled() {
-        return format!("probe off, set {PROBE_ENV}=1 to probe");
+        return format!("probe off, {PROBE_ENV} switched it off");
     }
     #[cfg(windows)]
     {
@@ -355,29 +355,21 @@ fn platform_detail() -> String {
 /// Environment variable that switches the live layout probe on and off.
 const PROBE_ENV: &str = "SILV_KEYMAP_PROBE";
 
-/// Values that switch the probe on.
-const PROBE_ON: [&str; 4] = ["1", "on", "yes", "true"];
-
 /// Values that switch the probe off.
 const PROBE_OFF: [&str; 4] = ["0", "off", "no", "false"];
 
-/// Probe policy of a platform for an env value: the Windows, xkb and builtin probes are stable and
-/// run unless they are switched off. The macOS probe calls Carbon through hand written FFI, and the
-/// `UCKeyTranslate` symbol it links to has more parameters than the 10 of that declaration on
-/// recent systems (the current entry point takes a state pointer first), so a call through it can
-/// corrupt memory and abort the process. A startup convenience is not worth that, so the macOS
-/// probe runs only on explicit opt-in, and macOS keeps the builtin table by default.
-fn probe_policy(platform: &str, setting: Option<&str>) -> bool {
-    let matches =
+/// Probe policy for an env value: every platform probes by default, `SILV_KEYMAP_PROBE` is the
+/// escape hatch that switches probing off, and an unknown value changes nothing. The macOS probe is
+/// main thread only (`macos.rs`): off the main thread it degrades to the built-in table rather than
+/// aborting, which is what a multi-threaded test harness would do to the process.
+fn probe_policy(setting: Option<&str>) -> bool {
+    let off =
         |words: &[&str]| setting.is_some_and(|value| words.iter().any(|word| value.trim().eq_ignore_ascii_case(word)));
-    if platform == "macos" {
-        return matches(&PROBE_ON);
-    }
-    !matches(&PROBE_OFF)
+    !off(&PROBE_OFF)
 }
 
 fn probe_enabled() -> bool {
-    probe_policy(PLATFORM, std::env::var(PROBE_ENV).ok().as_deref())
+    probe_policy(std::env::var(PROBE_ENV).ok().as_deref())
 }
 
 #[cfg(test)]
@@ -529,15 +521,13 @@ mod tests {
     }
 
     #[test]
-    fn probe_policy_is_opt_in_on_macos_and_opt_out_elsewhere() {
-        assert!(!probe_policy("macos", None), "macOS does not probe unasked");
-        assert!(!probe_policy("macos", Some("0")), "an off value never probes");
-        assert!(probe_policy("macos", Some("1")), "the macOS probe needs an explicit opt-in");
-        assert!(probe_policy("macos", Some(" on ")), "values are trimmed and case free");
-        assert!(probe_policy("windows", None), "the stable probes run by default");
-        assert!(probe_policy("xkb", Some("1")));
-        assert!(!probe_policy("windows", Some("OFF")), "the stable probes can be switched off");
-        assert!(probe_policy("windows", Some("nonsense")), "an unknown value changes nothing");
+    fn probe_policy_probes_by_default_and_takes_the_off_values() {
+        assert!(probe_policy(None), "every platform probes by default");
+        assert!(probe_policy(Some("1")));
+        assert!(probe_policy(Some("nonsense")), "an unknown value changes nothing");
+        assert!(!probe_policy(Some("0")), "an off value switches probing off");
+        assert!(!probe_policy(Some("OFF")), "values are trimmed and case free");
+        assert!(!probe_policy(Some(" no ")));
     }
 
     #[cfg(windows)]
@@ -580,11 +570,15 @@ mod tests {
 
     #[cfg(target_os = "macos")]
     #[test]
-    #[ignore = "runs the live Carbon probe; needs a Mac with a keyboard layout input source (SILV_KEYMAP_PROBE=1, silv --key-map-show)"]
     fn macos_probe_yields_usable_pairs() {
+        if !macos::on_main_thread() {
+            // The input source API is main thread only, so the harness must keep tests on it.
+            eprintln!("skipped: the macOS probe needs the main thread, run with `--test-threads=1`");
+            return;
+        }
         let pairs = macos::build();
         if pairs.is_empty() {
-            // Headless runners can have no keyboard layout input source; the probe degrades to empty.
+            // A session without a keyboard layout input source: the probe degrades to empty.
             assert!(!macos::detail().is_empty());
             return;
         }

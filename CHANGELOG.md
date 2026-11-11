@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - *(keymap)* Make the macOS layout probe opt-in
+- *(keymap)* Keep the macOS probe on the main thread
 
 ### Documentation
 
