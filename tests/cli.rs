@@ -380,8 +380,26 @@ fn help_and_version() {
     help.must_ok();
     assert!(help.out.contains("--fields-non-ordered-last"), "{}", help.out);
     assert!(help.out.contains("--filter-neq"), "{}", help.out);
+    assert!(help.out.contains("--key-map-show"), "{}", help.out);
 
     let version = run(&["--version"]);
     version.must_ok();
     assert!(version.out.contains("silv"), "{}", version.out);
+}
+
+#[test]
+fn key_map_show_reports_the_resolved_map() {
+    // Runs the platform probe path in CI, where a broken probe shows up as a failure of this test.
+    let auto = run(&["--key-map-show"]);
+    auto.must_ok();
+    assert!(auto.out.contains("key map: auto/"), "{}", auto.out);
+    assert!(auto.out.contains("entries: "), "{}", auto.out);
+
+    let raw = run(&["--key-map", "raw", "--key-map-show"]);
+    raw.must_ok();
+    assert!(raw.out.contains("key map: raw (no mapping)"), "{}", raw.out);
+
+    let builtin = run(&["--key-map", "ru", "--key-map-show"]);
+    builtin.must_ok();
+    assert!(builtin.out.contains("key map: layout table `ru`"), "{}", builtin.out);
 }

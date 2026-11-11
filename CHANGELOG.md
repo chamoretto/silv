@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(keymap)* Make the macOS layout probe opt-in
 
+### Testing
+
+- *(cli)* Exercise the key map resolution end to end
+
 ## [0.1.4] - 2026-11-11
 
 ### Added
