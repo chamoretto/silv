@@ -88,3 +88,8 @@ wsl -d Ubuntu-24.04 bash -lc "cd /mnt/c/Users/George/RustroverProjects/silv && p
 ```
 
 Check what the layout probing found on the current machine: `silv --key-map-show`.
+
+On macOS the live Carbon probe is opt-in (its `UCKeyTranslate` declaration does not match recent
+entry points, see `src/app/keymap/macos.rs`): verify it on a Mac with `SILV_KEYMAP_PROBE=1 silv
+--key-map-show` and `cargo test --lib -- --ignored` (the probe test is ignored, the runner is a GUI
+session requirement).
