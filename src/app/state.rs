@@ -1439,6 +1439,7 @@ impl AppState {
                     self.cycle_sort(&column);
                 }
             },
+            KeyCode::Char('S') => self.focus = Focus::Header,
             KeyCode::Char('t') => {
                 self.toggle_column(FieldPath::parse("@timestamp").unwrap_or_else(|_| FieldPath::from_key("@timestamp")))
             },
@@ -1536,8 +1537,9 @@ impl AppState {
                 "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
             },
             Focus::Rows => concat!(
-                "rows: [Enter] detail, [Space] filter by this value, [j]/[k] move, [f]/[b] page, ",
-                "[g]/[G] first/last, [/] search, [F] filter, [c] fields"
+                "rows: [Enter] detail view, [Space] select value to filter by, [j]/[k] move, [f]/[b] page, ",
+                "[g]/[G] first/last, [/] search, [F] add filter, [c] select fields to display as columns, ",
+                "[s] sort by first column, [S] select column to sort at headers"
             ),
             _ => "",
         }
@@ -1878,6 +1880,23 @@ mod tests {
         assert!(!state.help);
         state.handle_key(KeyCode::Char('с'), KeyModifiers::CONTROL); // physical Ctrl-C quits
         assert!(state.quit);
+    }
+
+    #[test]
+    fn shift_s_focuses_the_field_header_from_rows() {
+        let mut state = state_of(&["{\"a\":1}", "{\"b\":2}"]);
+        assert_eq!(state.focus, Focus::Rows);
+        state.handle_key(KeyCode::Char('S'), KeyModifiers::SHIFT);
+        assert_eq!(state.focus, Focus::Header);
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(state.focus, Focus::Rows);
+    }
+
+    #[test]
+    fn russian_layout_shift_s_focuses_the_field_header() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.handle_key(KeyCode::Char('Ы'), KeyModifiers::SHIFT); // the physical S key
+        assert_eq!(state.focus, Focus::Header);
     }
 
     #[test]
