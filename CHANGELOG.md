@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- git-cliff: end of header -->
 
-## [Unreleased]
+## [0.2.0] - 2026-11-14
 
 ### Added
 
-- *(report)* Add --memory-report for record memory accounting
+- *(report)* Add --memory-report for record memory accounting ([045c66b](https://github.com/chamoretto/silv/commit/045c66b47409690bc9dac8944130c1ccfb1635d0))
 
 ### Performance
 
-- *(record)* [**breaking**] Store parsed payload as ijson::IValue
+- *(record)* [**breaking**] Store parsed payload as ijson::IValue ([555e929](https://github.com/chamoretto/silv/commit/555e92974a4fd30d457c9e8a65e4099c29139ba3))
 
 ## [0.1.4] - 2026-11-11
 
@@ -133,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track Cargo.lock for reproducible release builds ([24aa87e](https://github.com/chamoretto/silv/commit/24aa87eb3a9574be2f754ea364395ae344bc737a))
 
 
-[Unreleased]: https://github.com/chamoretto/silv/compare/v0.1.4...HEAD
+[Unreleased]: https://github.com/chamoretto/silv/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/chamoretto/silv/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/chamoretto/silv/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/chamoretto/silv/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/chamoretto/silv/compare/v0.1.1...v0.1.2
