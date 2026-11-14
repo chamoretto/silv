@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Satisfy rust-clippy 1.100 lints
+
 ### Styling
 
 - Apply rustfmt to the v0.2.0 code

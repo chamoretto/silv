@@ -438,7 +438,7 @@ fn run_silv_records(lines: &[(u64, usize, &[u8])]) -> Run {
     alloc_count::enable();
     let mut dom: Vec<LogRecord> = Vec::with_capacity(lines.len());
     for (index, (number, offset, body)) in lines.iter().enumerate() {
-        if let Ok(record) = jsonl::parse_line(index as u32, *number, *offset, *body, &aliases) {
+        if let Ok(record) = jsonl::parse_line(index as u32, *number, *offset, body, &aliases) {
             dom.push(record);
         }
     }

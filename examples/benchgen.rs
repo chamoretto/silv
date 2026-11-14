@@ -302,7 +302,7 @@ fn write_mixed(rng: &mut Rng, line: &mut String, epoch_ms: &mut u64) {
         }
         let _ = write!(line, r#""{}""#, rng.pick(&WORDS));
     }
-    line.push_str("]");
+    line.push(']');
     if rng.chance(1, 12) {
         line.push_str(r#","error":null,"sample_rate":0.10,"context":{"region":"eu-central-1","shard":3}"#);
     }
@@ -450,10 +450,10 @@ fn main() {
 
     if files > 1 {
         std::fs::create_dir_all(&args.out).expect("create output directory");
-    } else if let Some(parent) = args.out.parent() {
-        if !parent.as_os_str().is_empty() {
-            std::fs::create_dir_all(parent).expect("create output parent");
-        }
+    } else if let Some(parent) = args.out.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).expect("create output parent");
     }
 
     let per_file = total / files as u64;

@@ -205,6 +205,8 @@ impl FieldPath {
     }
 }
 
+// ijson IArray exposes no get(); iter().nth() is the only indexing path.
+#[allow(clippy::iter_nth)]
 fn collect_value<'a>(segs: &[Segment], value: &'a IValue, out: &mut Vec<&'a IValue>) {
     let Some(first) = segs.first() else {
         out.push(value);

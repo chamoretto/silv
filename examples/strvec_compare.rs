@@ -73,7 +73,7 @@ fn string_table(count: usize, len: usize) -> Vec<String> {
 
 fn bench_strings(count: u64) {
     println!("== strings: {count} unique copies per row, heap bytes per string (live)");
-    println!("{:<24} {:>5} {:>4} {}", "type", "size", "B/str", "allocs/str");
+    println!("{:<24} {:>5} {:>4} allocs/str", "type", "size", "B/str");
     for len in [4usize, 8, 12, 15, 16, 24, 25, 32, 64, 128] {
         println!("-- string length {len}");
         let table = string_table(count as usize, len);
@@ -99,7 +99,7 @@ fn bench_strings(count: u64) {
                         .collect()
                 }),
             ),
-            ("smol_str", size_of::<SmolStr>(), measure(count, |_| table.iter().map(|s| SmolStr::new(s)).collect())),
+            ("smol_str", size_of::<SmolStr>(), measure(count, |_| table.iter().map(SmolStr::new).collect())),
             (
                 "SmallString<[u8;32]>",
                 size_of::<SmallString<[u8; 32]>>(),
@@ -150,7 +150,7 @@ fn bench_tags(count: u64) {
         })
         .collect();
     let rows: Vec<(&str, usize, (u64, u64, u64))> = vec![
-        ("Vec<String>", size_of::<Vec<String>>(), measure(count, |_| tag_sets.iter().map(|s| s.clone()).collect())),
+        ("Vec<String>", size_of::<Vec<String>>(), measure(count, |_| tag_sets.to_vec())),
         (
             "SmallVec<[String;4]>",
             size_of::<SmallVec<[String; 4]>>(),
