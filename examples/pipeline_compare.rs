@@ -172,12 +172,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let lines = parse::split_lines(&bytes);
         let n = lines.len().max(1) as f64;
         println!();
-        println!(
-            "== {} | input {} | lines {}",
-            path,
-            human(bytes.len() as u64),
-            lines.len()
-        );
+        println!("== {} | input {} | lines {}", path, human(bytes.len() as u64), lines.len());
         let runs = [run_baseline(&lines), run_ijson(&lines), run_sonic(&lines)];
         println!(
             "{:<24} {:>10} {:>10} {:>11} {:>11} {:>10} {:>10}",

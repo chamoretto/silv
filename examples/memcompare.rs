@@ -116,18 +116,18 @@ fn walk_serde(value: &Value, c: &mut Counts) {
                 c.add_entry(k.len());
                 walk_serde(v, c);
             }
-        }
+        },
         Value::Array(items) => {
             c.arrays += 1;
             c.elems += items.len() as u64;
             for v in items {
                 walk_serde(v, c);
             }
-        }
+        },
         Value::String(s) => {
             c.strings += 1;
             c.str_bytes += s.len() as u64;
-        }
+        },
         Value::Number(_) => c.numbers += 1,
         Value::Bool(_) => c.bools += 1,
         Value::Null => c.nulls += 1,
@@ -147,10 +147,10 @@ fn run_serde_json(lines: &[(u64, usize, &[u8])]) -> Run {
                     walk_serde(v, &mut c);
                 }
                 dom.push(map);
-            }
+            },
             Err(e) => {
                 first_err.get_or_insert_with(|| e.to_string());
-            }
+            },
         }
     }
     c.maps += dom.len() as u64;
@@ -176,7 +176,7 @@ fn walk_ijson(value: &ijson::IValue, c: &mut Counts) {
                     walk_ijson(v, c);
                 }
             }
-        }
+        },
         ijson::ValueType::Array => {
             c.arrays += 1;
             if let Some(arr) = value.as_array() {
@@ -185,13 +185,13 @@ fn walk_ijson(value: &ijson::IValue, c: &mut Counts) {
                     walk_ijson(v, c);
                 }
             }
-        }
+        },
         ijson::ValueType::String => {
             c.strings += 1;
             if let Some(s) = value.as_string() {
                 c.str_bytes += s.len() as u64;
             }
-        }
+        },
         ijson::ValueType::Number => c.numbers += 1,
         ijson::ValueType::Bool => c.bools += 1,
         ijson::ValueType::Null => c.nulls += 1,
@@ -208,10 +208,10 @@ fn run_ijson(lines: &[(u64, usize, &[u8])]) -> Run {
             Ok(v) => {
                 walk_ijson(&v, &mut c);
                 dom.push(v);
-            }
+            },
             Err(e) => {
                 first_err.get_or_insert_with(|| e.to_string());
-            }
+            },
         }
     }
     c.maps += dom.len() as u64;
@@ -269,10 +269,10 @@ fn run_sonic(lines: &[(u64, usize, &[u8])]) -> Run {
             Ok(v) => {
                 walk_sonic(&v, &mut c);
                 dom.push(v);
-            }
+            },
             Err(e) => {
                 first_err.get_or_insert_with(|| e.to_string());
-            }
+            },
         }
     }
     c.maps += dom.len() as u64;
@@ -297,18 +297,18 @@ fn walk_datavalue(value: &datavalue_rs::DataValue<'_>, c: &mut Counts) {
                 c.add_entry(k.len());
                 walk_datavalue(v, c);
             }
-        }
+        },
         DataValue::Array(items) => {
             c.arrays += 1;
             c.elems += items.len() as u64;
             for v in items.iter() {
                 walk_datavalue(v, c);
             }
-        }
+        },
         DataValue::String(s) => {
             c.strings += 1;
             c.str_bytes += s.len() as u64;
-        }
+        },
         DataValue::Number(_) => c.numbers += 1,
         DataValue::Bool(_) => c.bools += 1,
         _ => c.nulls += 1,
@@ -326,10 +326,10 @@ fn run_datavalue(lines: &[(u64, usize, &[u8])]) -> Run {
             Ok(v) => {
                 walk_datavalue(&v, &mut c);
                 dom.push(v);
-            }
+            },
             Err(e) => {
                 first_err.get_or_insert_with(|| format!("{e:?}"));
-            }
+            },
         }
     }
     c.maps += dom.len() as u64;
@@ -418,7 +418,7 @@ fn run_nanoserde(lines: &[(u64, usize, &[u8])]) -> Run {
             Ok(r) => dom.push(r),
             Err(e) => {
                 first_err.get_or_insert_with(|| format!("line {}: {:?}", e.line, e.msg));
-            }
+            },
         }
     }
     if let Some(err) = first_err {
@@ -428,10 +428,7 @@ fn run_nanoserde(lines: &[(u64, usize, &[u8])]) -> Run {
     drop(dom);
     run = run.residue();
     alloc_count::disable();
-    run.extra(
-        "struct size",
-        std::mem::size_of::<nano::RecordMixed>() as u64,
-    )
+    run.extra("struct size", std::mem::size_of::<nano::RecordMixed>() as u64)
 }
 
 // silv internal layer (reference)
@@ -492,12 +489,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let bytes = fs::read(path)?;
         let lines = parse::split_lines(&bytes);
         println!();
-        println!(
-            "== {} | input {} | lines {}",
-            path.display(),
-            human(bytes.len() as u64),
-            lines.len()
-        );
+        println!("== {} | input {} | lines {}", path.display(), human(bytes.len() as u64), lines.len());
 
         let runs = [
             run_serde_json(&lines),
@@ -547,30 +539,16 @@ fn main() -> Result<(), Box<dyn Error>> {
                     if b.entries != c.entries || b.strings != c.strings || b.numbers != c.numbers {
                         println!(
                             "NOTE {}: entries {} vs {}, strings {} vs {}, numbers {} vs {}",
-                            run.name,
-                            c.entries,
-                            b.entries,
-                            c.strings,
-                            b.strings,
-                            c.numbers,
-                            b.numbers
+                            run.name, c.entries, b.entries, c.strings, b.strings, c.numbers, b.numbers
                         );
                     }
-                }
+                },
             }
         }
         if let Some((_, c)) = base {
             println!(
                 "structure: maps={} entries={} arrays={} elems={} strings={} string_bytes={} numbers={} bools={} nulls={}",
-                c.maps,
-                c.entries,
-                c.arrays,
-                c.elems,
-                c.strings,
-                c.str_bytes,
-                c.numbers,
-                c.bools,
-                c.nulls
+                c.maps, c.entries, c.arrays, c.elems, c.strings, c.str_bytes, c.numbers, c.bools, c.nulls
             );
         }
     }

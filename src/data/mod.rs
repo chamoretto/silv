@@ -8,9 +8,9 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::Arc;
 
+use ijson::IValue;
 use miette::Result;
 use rayon::prelude::*;
-use ijson::IValue;
 
 use crate::cli::Config;
 use crate::cli::FormatSelection;

@@ -24,8 +24,8 @@ use silv::alloc_count::Counting;
 use silv::parse;
 use smallstr::SmallString;
 use smallvec::SmallVec;
-use smol_str::SmolStr;
 use smartstring::{LazyCompact, SmartString};
+use smol_str::SmolStr;
 use tinyvec::TinyVec;
 
 #[global_allocator]
@@ -73,38 +73,53 @@ fn string_table(count: usize, len: usize) -> Vec<String> {
 
 fn bench_strings(count: u64) {
     println!("== strings: {count} unique copies per row, heap bytes per string (live)");
-    println!(
-        "{:<24} {:>5} {:>4} {}",
-        "type", "size", "B/str", "allocs/str"
-    );
+    println!("{:<24} {:>5} {:>4} {}", "type", "size", "B/str", "allocs/str");
     for len in [4usize, 8, 12, 15, 16, 24, 25, 32, 64, 128] {
-        println!(
-            "-- string length {len}"
-        );
+        println!("-- string length {len}");
         let table = string_table(count as usize, len);
 
         let rows: Vec<(&str, usize, (u64, u64, u64))> = vec![
-            ("String", size_of::<String>(), measure(count, |_| {
-                table.iter().map(String::as_str).map(str::to_owned).collect()
-            })),
-            ("compact_str", size_of::<CompactString>(), measure(count, |_| {
-                table.iter().map(|s| CompactString::new(s)).collect()
-            })),
-            ("smartstring", size_of::<SmartString<LazyCompact>>(), measure(count, |_| {
-                table.iter().map(|s| SmartString::<LazyCompact>::from(s.as_str())).collect()
-            })),
-            ("smol_str", size_of::<SmolStr>(), measure(count, |_| {
-                table.iter().map(|s| SmolStr::new(s)).collect()
-            })),
-            ("SmallString<[u8;32]>", size_of::<SmallString<[u8; 32]>>(), measure(count, |_| {
-                table.iter().map(|s| SmallString::<[u8; 32]>::from(s.as_str())).collect()
-            })),
-            ("cold_string", size_of::<ColdString>(), measure(count, |_| {
-                table.iter().map(|s| ColdString::from(s.as_str())).collect()
-            })),
-            ("hipstr", size_of::<HipStr<'static>>(), measure(count, |_| {
-                table.iter().map(|s| HipStr::from(s.as_str())).collect()
-            })),
+            (
+                "String",
+                size_of::<String>(),
+                measure(count, |_| table.iter().map(String::as_str).map(str::to_owned).collect()),
+            ),
+            (
+                "compact_str",
+                size_of::<CompactString>(),
+                measure(count, |_| table.iter().map(|s| CompactString::new(s)).collect()),
+            ),
+            (
+                "smartstring",
+                size_of::<SmartString<LazyCompact>>(),
+                measure(count, |_| {
+                    table
+                        .iter()
+                        .map(|s| SmartString::<LazyCompact>::from(s.as_str()))
+                        .collect()
+                }),
+            ),
+            ("smol_str", size_of::<SmolStr>(), measure(count, |_| table.iter().map(|s| SmolStr::new(s)).collect())),
+            (
+                "SmallString<[u8;32]>",
+                size_of::<SmallString<[u8; 32]>>(),
+                measure(count, |_| {
+                    table
+                        .iter()
+                        .map(|s| SmallString::<[u8; 32]>::from(s.as_str()))
+                        .collect()
+                }),
+            ),
+            (
+                "cold_string",
+                size_of::<ColdString>(),
+                measure(count, |_| table.iter().map(|s| ColdString::from(s.as_str())).collect()),
+            ),
+            (
+                "hipstr",
+                size_of::<HipStr<'static>>(),
+                measure(count, |_| table.iter().map(|s| HipStr::from(s.as_str())).collect()),
+            ),
         ];
         for (name, size, (live, allocs, _)) in rows {
             println!(
@@ -124,8 +139,7 @@ fn bench_tags(count: u64) {
     println!();
     println!("== tag arrays: {count} arrays, live bytes per array (static slot included)");
     let words = [
-        "apm", "auth", "cache", "db", "edge", "http", "kafka", "queue", "redis", "shard",
-        "tls", "worker",
+        "apm", "auth", "cache", "db", "edge", "http", "kafka", "queue", "redis", "shard", "tls", "worker",
     ];
     let tag_sets: Vec<Vec<String>> = (0..count)
         .map(|i| {
@@ -136,34 +150,69 @@ fn bench_tags(count: u64) {
         })
         .collect();
     let rows: Vec<(&str, usize, (u64, u64, u64))> = vec![
-        ("Vec<String>", size_of::<Vec<String>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.clone()).collect()
-        })),
-        ("SmallVec<[String;4]>", size_of::<SmallVec<[String; 4]>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.iter().cloned().collect::<SmallVec<[String; 4]>>()).collect()
-        })),
-        ("TinyVec<[String;4]>", size_of::<TinyVec<[String; 4]>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.iter().cloned().collect::<TinyVec<[String; 4]>>()).collect()
-        })),
-        ("Vec<CompactString>", size_of::<Vec<CompactString>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.iter().map(|w| CompactString::new(w)).collect::<Vec<_>>()).collect()
-        })),
-        ("SmallVec<[CompactString;4]>", size_of::<SmallVec<[CompactString; 4]>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.iter().map(|w| CompactString::new(w)).collect::<SmallVec<[CompactString; 4]>>()).collect()
-        })),
-        ("TinyVec<[CompactString;4]>", size_of::<TinyVec<[CompactString; 4]>>(), measure(count, |_| {
-            tag_sets.iter().map(|s| s.iter().map(|w| CompactString::new(w)).collect::<TinyVec<[CompactString; 4]>>()).collect()
-        })),
+        ("Vec<String>", size_of::<Vec<String>>(), measure(count, |_| tag_sets.iter().map(|s| s.clone()).collect())),
+        (
+            "SmallVec<[String;4]>",
+            size_of::<SmallVec<[String; 4]>>(),
+            measure(count, |_| {
+                tag_sets
+                    .iter()
+                    .map(|s| s.iter().cloned().collect::<SmallVec<[String; 4]>>())
+                    .collect()
+            }),
+        ),
+        (
+            "TinyVec<[String;4]>",
+            size_of::<TinyVec<[String; 4]>>(),
+            measure(count, |_| {
+                tag_sets
+                    .iter()
+                    .map(|s| s.iter().cloned().collect::<TinyVec<[String; 4]>>())
+                    .collect()
+            }),
+        ),
+        (
+            "Vec<CompactString>",
+            size_of::<Vec<CompactString>>(),
+            measure(count, |_| {
+                tag_sets
+                    .iter()
+                    .map(|s| s.iter().map(|w| CompactString::new(w)).collect::<Vec<_>>())
+                    .collect()
+            }),
+        ),
+        (
+            "SmallVec<[CompactString;4]>",
+            size_of::<SmallVec<[CompactString; 4]>>(),
+            measure(count, |_| {
+                tag_sets
+                    .iter()
+                    .map(|s| {
+                        s.iter()
+                            .map(|w| CompactString::new(w))
+                            .collect::<SmallVec<[CompactString; 4]>>()
+                    })
+                    .collect()
+            }),
+        ),
+        (
+            "TinyVec<[CompactString;4]>",
+            size_of::<TinyVec<[CompactString; 4]>>(),
+            measure(count, |_| {
+                tag_sets
+                    .iter()
+                    .map(|s| {
+                        s.iter()
+                            .map(|w| CompactString::new(w))
+                            .collect::<TinyVec<[CompactString; 4]>>()
+                    })
+                    .collect()
+            }),
+        ),
     ];
     println!("{:<30} {:>5} {:>7} {:>11}", "type", "size", "B/array", "allocs/array");
     for (name, size, (live, allocs, _)) in rows {
-        println!(
-            "{:<30} {:>5} {:>7.1} {:>11.2}",
-            name,
-            size,
-            live as f64 / count as f64,
-            allocs as f64 / count as f64,
-        );
+        println!("{:<30} {:>5} {:>7.1} {:>11.2}", name, size, live as f64 / count as f64, allocs as f64 / count as f64,);
     }
 }
 
@@ -199,7 +248,7 @@ fn mini_of(value: Value) -> MiniValue {
             } else {
                 MiniValue::Float(n.as_f64().unwrap_or(0.0))
             }
-        }
+        },
         Value::String(s) => MiniValue::Str(CompactString::from(s)),
         Value::Array(items) => MiniValue::Arr(Box::new(items.into_iter().map(mini_of).collect())),
         Value::Object(map) => {
@@ -208,13 +257,19 @@ fn mini_of(value: Value) -> MiniValue {
                 fields.push((CompactString::from(k), mini_of(v)));
             }
             MiniValue::Obj(Box::new(fields))
-        }
+        },
     }
 }
 
 fn mini_record(source: u32, line: u64, offset: usize, map: Map<String, Value>) -> MiniRecord {
     let message = map.get("message").and_then(|v| v.as_str()).map(CompactString::from);
-    MiniRecord { source, line, offset, message, fields: mini_obj_fields(map) }
+    MiniRecord {
+        source,
+        line,
+        offset,
+        message,
+        fields: mini_obj_fields(map),
+    }
 }
 
 fn mini_obj_fields(map: Map<String, Value>) -> SmallVec<[(CompactString, MiniValue); 4]> {

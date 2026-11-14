@@ -116,7 +116,7 @@ fn compare_arrays<'a>(x: &'a ijson::IArray, y: &'a ijson::IArray) -> Ordering {
                 if ord != Ordering::Equal {
                     return ord;
                 }
-            }
+            },
             _ => return x.len().cmp(&y.len()),
         }
     }

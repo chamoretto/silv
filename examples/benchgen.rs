@@ -47,7 +47,10 @@ impl Preset {
 }
 
 #[derive(Parser)]
-#[command(name = "benchgen", about = "Generate deterministic benchmark JSON Lines for --memory-report")]
+#[command(
+    name = "benchgen",
+    about = "Generate deterministic benchmark JSON Lines for --memory-report"
+)]
 struct Args {
     /// Record shape family
     #[arg(long, value_enum, default_value = "mixed")]
@@ -102,11 +105,48 @@ impl Rng {
 }
 
 const WORDS: [&str; 42] = [
-    "request", "response", "connection", "timeout", "retry", "queue", "batch", "segment", "partition", "offset",
-    "commit", "cache", "eviction", "handshake", "certificate", "rotation", "snapshot", "compaction", "replica",
-    "leader", "election", "heartbeat", "deadline", "backpressure", "buffer", "flush", "fsync", "wal", "checkpoint",
-    "shard", "replication", "vacuum", "index", "reindex", "vacuuming", "ingest", "pipeline", "stage", "drain",
-    "spill", "archive", "retention",
+    "request",
+    "response",
+    "connection",
+    "timeout",
+    "retry",
+    "queue",
+    "batch",
+    "segment",
+    "partition",
+    "offset",
+    "commit",
+    "cache",
+    "eviction",
+    "handshake",
+    "certificate",
+    "rotation",
+    "snapshot",
+    "compaction",
+    "replica",
+    "leader",
+    "election",
+    "heartbeat",
+    "deadline",
+    "backpressure",
+    "buffer",
+    "flush",
+    "fsync",
+    "wal",
+    "checkpoint",
+    "shard",
+    "replication",
+    "vacuum",
+    "index",
+    "reindex",
+    "vacuuming",
+    "ingest",
+    "pipeline",
+    "stage",
+    "drain",
+    "spill",
+    "archive",
+    "retention",
 ];
 
 const SERVICES: [&str; 8] = [
@@ -120,7 +160,9 @@ const SERVICES: [&str; 8] = [
     "stream-consumer",
 ];
 
-const HOSTS: [&str; 7] = ["web-01", "web-02", "web-03", "node-a1", "node-b2", "runner-7", "runner-8"];
+const HOSTS: [&str; 7] = [
+    "web-01", "web-02", "web-03", "node-a1", "node-b2", "runner-7", "runner-8",
+];
 
 const LOGGERS: [&str; 7] = [
     "app.handlers.auth",
@@ -143,9 +185,7 @@ const PATHS: [&str; 6] = [
     "/graphql",
 ];
 
-const NAMES: [&str; 8] = [
-    "ada", "bruno", "clara", "dmitri", "elena", "boris", "greta", "hugo",
-];
+const NAMES: [&str; 8] = ["ada", "bruno", "clara", "dmitri", "elena", "boris", "greta", "hugo"];
 
 const LEVELS: [(u64, &str); 6] = [
     (55, "INFO"),
@@ -284,12 +324,7 @@ fn write_numbers(rng: &mut Rng, line: &mut String, epoch_ms: &mut u64) {
         let _ = write!(line, r#","n{}":{}"#, index, 1_000_000_000_000 + rng.below(9_000_000_000_000));
     }
     for index in 14..20 {
-        let _ = write!(
-            line,
-            r#","n{}":{:.6}"#,
-            index,
-            rng.below(100_000_000) as f64 / 100_000.0
-        );
+        let _ = write!(line, r#","n{}":{:.6}"#, index, rng.below(100_000_000) as f64 / 100_000.0);
     }
     line.push('}');
     line.push('\n');
@@ -301,12 +336,7 @@ fn write_strings(rng: &mut Rng, line: &mut String, epoch_ms: &mut u64) {
     line.push('{');
     line.push_str(r#""@timestamp":""#);
     write_ts(line, *epoch_ms);
-    let _ = write!(
-        line,
-        r#"","level":"{}","service":"{}","message":""#,
-        level(rng),
-        rng.pick(&SERVICES),
-    );
+    let _ = write!(line, r#"","level":"{}","service":"{}","message":""#, level(rng), rng.pick(&SERVICES),);
     message(rng, line);
     for _ in 0..4 + rng.below(20) {
         line.push(' ');
@@ -460,8 +490,5 @@ fn main() {
         grand_lines += lines;
         println!("{}: {} bytes, {} lines", path.display(), bytes, lines);
     }
-    println!(
-        "total {} bytes, {} lines, shape {:?}, seed {}",
-        grand_bytes, grand_lines, args.shape, args.seed
-    );
+    println!("total {} bytes, {} lines, shape {:?}, seed {}", grand_bytes, grand_lines, args.shape, args.seed);
 }

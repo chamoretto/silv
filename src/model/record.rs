@@ -142,13 +142,7 @@ pub struct LogRecord {
 
 impl LogRecord {
     /// Extracts the well-known columns; every other key stays addressable by field path.
-    pub fn from_object(
-        source: u32,
-        line: u64,
-        offset: usize,
-        object: IValue,
-        aliases: &FieldAliases,
-    ) -> Self {
+    pub fn from_object(source: u32, line: u64, offset: usize, object: IValue, aliases: &FieldAliases) -> Self {
         let timestamp = aliases
             .timestamp_value(&object)
             .and_then(Timestamp::from_value)

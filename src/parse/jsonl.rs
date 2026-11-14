@@ -90,7 +90,11 @@ mod tests {
         assert_eq!(record.level, Some(Level::Info.into()));
         assert_eq!(record.stamp(TimeFormat::UtcDateTime), "2023-11-14 22:13:20.123");
         assert_eq!(
-            record.object.get("nested").and_then(|v| v.get("a")).and_then(|a| a.get(1)),
+            record
+                .object
+                .get("nested")
+                .and_then(|v| v.get("a"))
+                .and_then(|a| a.get(1)),
             Some(&ivalue(json!(2))),
         );
     }

@@ -410,7 +410,12 @@ mod tests {
 
     #[test]
     fn json_values_are_accepted() {
-        assert_eq!(Timestamp::from_value(&ivalue(serde_json::json!(1700000000))).unwrap().nanos(), 1_700_000_000_000_000_000);
+        assert_eq!(
+            Timestamp::from_value(&ivalue(serde_json::json!(1700000000)))
+                .unwrap()
+                .nanos(),
+            1_700_000_000_000_000_000
+        );
         assert_eq!(
             Timestamp::from_value(&ivalue(serde_json::json!({ "$date": "2023-11-14T22:13:20.123Z" })))
                 .unwrap()

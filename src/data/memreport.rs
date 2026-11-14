@@ -384,8 +384,8 @@ pub fn process_peak_rss() -> Option<u64> {
 fn process_counters() -> Option<(u64, u64, u64)> {
     use std::ffi::c_void;
     use std::mem::size_of;
-    use windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
     use windows_sys::Win32::System::ProcessStatus::GetProcessMemoryInfo;
+    use windows_sys::Win32::System::ProcessStatus::PROCESS_MEMORY_COUNTERS;
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
 
     let mut counters = PROCESS_MEMORY_COUNTERS {
@@ -534,7 +534,10 @@ pub fn build(bundle: &InputBundle, config: &Config, layer: ReportLayer) -> Memor
         let mut all_values: Vec<Vec<IValue>> = Vec::with_capacity(bundle.sources.len());
         for (index, source) in bundle.sources.iter().enumerate() {
             let lines = split_lines(source.bytes());
-            let consumed = lines.last().map(|(_, offset, bytes)| *offset + bytes.len()).unwrap_or(0);
+            let consumed = lines
+                .last()
+                .map(|(_, offset, bytes)| *offset + bytes.len())
+                .unwrap_or(0);
             let take = lines.len().min(config.max_records);
             let parsed: Vec<Option<IValue>> = lines[..take]
                 .par_iter()
@@ -576,7 +579,10 @@ pub fn build(bundle: &InputBundle, config: &Config, layer: ReportLayer) -> Memor
         for (index, source) in bundle.sources.iter().enumerate() {
             let source_id = u32::try_from(index).unwrap_or(u32::MAX);
             let lines = split_lines(source.bytes());
-            let consumed = lines.last().map(|(_, offset, bytes)| *offset + bytes.len()).unwrap_or(0);
+            let consumed = lines
+                .last()
+                .map(|(_, offset, bytes)| *offset + bytes.len())
+                .unwrap_or(0);
             let take = lines.len().min(config.max_records.saturating_sub(records.len()));
             let results: Vec<LineResult> = lines[..take]
                 .par_iter()
@@ -850,7 +856,11 @@ pub fn format_report(report: &MemoryReport) -> String {
             human(measured.saturating_sub(json_measured.unwrap_or(0))),
         );
     }
-    let _ = writeln!(out, "  model vs measured (internal): {} (allocator headers, fragmentation, model drift)", human(internal_model.abs_diff(internal_measured)));
+    let _ = writeln!(
+        out,
+        "  model vs measured (internal): {} (allocator headers, fragmentation, model drift)",
+        human(internal_model.abs_diff(internal_measured))
+    );
     let _ = writeln!(out);
 
     let _ = writeln!(out, "json value anatomy (walk, exact components plus table model):");
@@ -1041,7 +1051,11 @@ pub fn format_report(report: &MemoryReport) -> String {
         );
         for row in &report.sources {
             let label = row.label.replace('\\', "/");
-            let label = if label.len() > 44 { label[label.len() - 44..].to_owned() } else { label };
+            let label = if label.len() > 44 {
+                label[label.len() - 44..].to_owned()
+            } else {
+                label
+            };
             let json_est = row.json.heap_est() + row.parsed_json * VALUE_SLOT;
             let internal_est =
                 row.records_walk.json.heap_est() + row.records_walk.extras_heap() + row.records * RECORD_SLOT;
@@ -1138,7 +1152,10 @@ pub fn format_report(report: &MemoryReport) -> String {
         human(lines * LINE_INDEX_SLOT),
         human(MMAP_THRESHOLD),
     );
-    let _ = writeln!(out, "  8. filtering adds no storage: predicates evaluate against the stored values (text_of borrows strings, formats numbers into a reused buffer), so layout savings pay back as cache pressure on every search and filter pass.");
+    let _ = writeln!(
+        out,
+        "  8. filtering adds no storage: predicates evaluate against the stored values (text_of borrows strings, formats numbers into a reused buffer), so layout savings pay back as cache pressure on every search and filter pass."
+    );
     out
 }
 
@@ -1153,11 +1170,7 @@ mod tests {
     #[test]
     fn walks_counts_all_kinds() {
         let mut walk = JsonWalk::default();
-        add_root(
-            &mut walk,
-            &map(r#"{"a": 1, "b": -2, "c": 1.5, "d": "x", "e": [true, null, {"f": 3}]}"#),
-            0,
-        );
+        add_root(&mut walk, &map(r#"{"a": 1, "b": -2, "c": 1.5, "d": "x", "e": [true, null, {"f": 3}]}"#), 0);
         assert_eq!(walk.maps, 2);
         assert_eq!(walk.entries, 6);
         assert_eq!(walk.ints, 3);

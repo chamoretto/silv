@@ -90,11 +90,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         drop(probe);
         alloc_count::disable();
 
-        println!(
-            "== {} | records {}",
-            path,
-            lines.len()
-        );
+        println!("== {} | records {}", path, lines.len());
         println!(
             "  Vec<LogRecord>   live {} | {:.1} B/rec | {:.1} allocs/rec",
             human(vec_snap.live),
