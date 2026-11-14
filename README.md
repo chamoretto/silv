@@ -67,6 +67,34 @@ silv -i logs/ --include '*.jsonl' -r --max-records 100000
 - Lines that fail to parse become `INVALID` records and stay visible; `--no-keep-bad-lines` drops
   them, `--strict` aborts with a miette diagnostic pointing at the offending line.
 
+## Memory overhead
+
+Keeping records in RAM is the Kibana experience: each JSON line is deserialized once into an
+interned DOM (`ijson::IValue`, 8-byte values) and that DOM is the resident record payload for
+the whole session, so peak RAM equals final RAM - no transient parse-time copies. Field names
+and long string values are interned process-wide: the 20 field names of a realistic log cost
+124 B in total, not 4 MiB, and repeated values (hosts, services, ids) are stored once.
+
+Measured on synthetic app logs ("mixed" shape, full study in [`docs/memory-benchmarks.md`](docs/memory-benchmarks.md)):
+
+| input    | records     | record layer | vs file on disk | peak RSS  |
+|----------|-------------|--------------|-----------------|-----------|
+| 16 MiB   | 31 233      | 43.7 MiB     | 2.7x            | 85 MiB    |
+| 100 MiB  | 195 227     | 274.6 MiB    | 2.75x           | 462 MiB   |
+| 500 MiB  | 500 000 cap | 697.7 MiB    | 1.40x partial   | 1.37 GiB  |
+
+Cost is stable at ~1470 B per record. The serde_json DOM baseline (v0.1.4) cost ~5.0 KB per
+record (9.3x the file, 216 MiB peak for the 16 MiB input), so the record layer shrank ~71%
+and allocation churn from 59 to 18 allocations per record. Per-shape per-record cost:
+numbers ~1100, strings ~1350, deeply nested ~4200 B.
+
+Measure your own files with the built-in accounting mode (counting allocator + RSS):
+
+```sh
+cargo build --release --features mem-bench --bins
+target/release/silv app.jsonl --memory-report all   # json | records | all
+```
+
 ## Fields
 
 Field paths address values inside each record: `a.b`, quoted keys `a."b.c"`, array indexes
@@ -244,7 +272,7 @@ Error: silv::parse::invalid_line
 | `x86_64-pc-windows-msvc`    | `cargo build --release` (with `target.x86_64-pc-windows-msvc.rustflags = ["-C","target-feature=+crt-static"]`)                                       | static CRT; needs the usual VC runtime present on all modern Windows                                             |
 | `aarch64-apple-darwin`      | `cargo build --release`                                                                                                                              | system libc/libresolv must stay dynamic (Apple forbids fully static); the result runs on every Apple Silicon mac |
 
-Everything SILV uses (globset, regex, ratatui/crossterm, serde_json, clap, miette, rayon,
+Everything SILV uses (globset, regex, ratatui/crossterm, serde_json, ijson, clap, miette, rayon,
 memmap2, unicode-width) is pure Rust, so the linux-musl target produces a real ELF with zero
 dynamic dependencies.
 
@@ -264,7 +292,7 @@ also the musl build when the target is installed) into `dist/`.
 ## Development
 
 ```sh
-cargo test --all-targets        # 149 unit + 25 end-to-end CLI tests
+cargo test --all-targets        # 196 unit + 26 end-to-end CLI tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```

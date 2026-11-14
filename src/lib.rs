@@ -2,6 +2,8 @@
 //!
 //! Library entry point is [`run`], the binary target is a thin wrapper over it.
 
+#[cfg(feature = "mem-bench")]
+pub mod alloc_count;
 pub mod app;
 pub mod cli;
 pub mod data;
@@ -15,14 +17,14 @@ use std::io::Write;
 use std::time::Instant;
 
 use clap::Parser;
-use miette::{Context, IntoDiagnostic, Result};
+use miette::{Context, IntoDiagnostic};
 
 use crate::app::keymap::KeyMap;
 use crate::cli::{Config, RunMode};
 use crate::data::LogStore;
 
 /// Parses arguments, loads input and dispatches to the requested mode.
-pub fn run() -> Result<()> {
+pub fn run() -> miette::Result<()> {
     let started = Instant::now();
     let cli = cli::Cli::parse();
     let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
@@ -30,6 +32,11 @@ pub fn run() -> Result<()> {
 
     if config.key_map_show {
         return write_key_map(&config);
+    }
+
+    #[cfg(feature = "mem-bench")]
+    if let Some(layer) = config.memory_report {
+        return data::memreport::run(&config, layer).context("memory report failed");
     }
 
     let bundle = parse::input::read_inputs(&config)

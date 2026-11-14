@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(report)* Add --memory-report for record memory accounting
+
 ### Performance
 
 - *(record)* [**breaking**] Store parsed payload as ijson::IValue

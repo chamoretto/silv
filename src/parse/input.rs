@@ -12,7 +12,7 @@ use crate::cli::Config;
 use crate::error::SilvError;
 
 /// Files at or above this size are memory mapped instead of copied.
-const MMAP_THRESHOLD: u64 = 8 * 1024 * 1024;
+pub const MMAP_THRESHOLD: u64 = 8 * 1024 * 1024;
 
 pub const STDIN_LABEL: &str = "<stdin>";
 

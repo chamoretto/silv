@@ -150,6 +150,55 @@ pub enum SortDir {
     Desc,
 }
 
+/// Which heap layers `--memory-report` measures.
+#[cfg(feature = "mem-bench")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ReportLayer {
+    /// The parsed JSON objects (`ijson::IValue` DOM) only.
+    Json,
+    /// The internal `Vec<LogRecord>` representation only.
+    Records,
+    /// Both layers, measured in one run.
+    All,
+}
+
+#[cfg(feature = "mem-bench")]
+impl ReportLayer {
+    pub const fn json_layer(self) -> bool {
+        matches!(self, Self::Json | Self::All)
+    }
+
+    pub const fn records_layer(self) -> bool {
+        matches!(self, Self::Records | Self::All)
+    }
+}
+
+#[cfg(feature = "mem-bench")]
+impl std::fmt::Display for ReportLayer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let token = match self {
+            Self::Json => "json",
+            Self::Records => "records",
+            Self::All => "all",
+        };
+        f.write_str(token)
+    }
+}
+
+#[cfg(feature = "mem-bench")]
+impl std::str::FromStr for ReportLayer {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "json" | "parsed" | "jsonl" => Ok(Self::Json),
+            "records" | "internal" | "rec" => Ok(Self::Records),
+            "all" | "both" => Ok(Self::All),
+            other => Err(format!("`{other}` is not a report layer, use `json`, `records` or `all`")),
+        }
+    }
+}
+
 impl SortDir {
     pub const fn marker(self) -> &'static str {
         match self {
@@ -394,6 +443,11 @@ pub struct Cli {
     #[arg(long)]
     pub key_map_show: bool,
 
+    /// Print measured heap accounting for file, parsed json and internal record layers, then exit; use `--memory-report=json` or `--memory-report=records` for a single layer
+    #[cfg(feature = "mem-bench")]
+    #[arg(long, value_name = "LAYER", num_args = 0..=1, default_missing_value = "all")]
+    pub memory_report: Option<String>,
+
     /// Print parse and record counts to stderr
     #[arg(long)]
     pub stats: bool,
@@ -434,6 +488,8 @@ pub struct Config {
     pub mouse: MouseMode,
     pub key_map: KeyMapMode,
     pub key_map_show: bool,
+    #[cfg(feature = "mem-bench")]
+    pub memory_report: Option<ReportLayer>,
     pub stats: bool,
     pub verbose: u8,
     pub quiet: bool,
@@ -472,6 +528,8 @@ impl Default for Config {
             mouse: MouseMode::Auto,
             key_map: KeyMapMode::Auto,
             key_map_show: false,
+            #[cfg(feature = "mem-bench")]
+            memory_report: None,
             stats: false,
             verbose: 0,
             quiet: false,
@@ -510,6 +568,16 @@ impl Config {
 
         let color = if cli.no_color { ColorChoice::Never } else { cli.color };
         let color_enabled = resolve_color(color);
+        #[cfg(feature = "mem-bench")]
+        let memory_report = cli
+            .memory_report
+            .as_deref()
+            .map(ReportLayer::from_str)
+            .transpose()
+            .map_err(|reason| SilvError::Argument {
+                flag: "--memory-report".to_owned(),
+                reason,
+            })?;
 
         let config = Self {
             mode: resolve_mode(cli),
@@ -540,6 +608,8 @@ impl Config {
             mouse: cli.mouse,
             key_map: validate_key_map(cli.key_map.clone())?,
             key_map_show: cli.key_map_show,
+            #[cfg(feature = "mem-bench")]
+            memory_report,
             stats: cli.stats,
             verbose: cli.verbose,
             quiet: cli.quiet,

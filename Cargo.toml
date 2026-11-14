@@ -21,6 +21,25 @@ path = "src/lib.rs"
 name = "silv"
 path = "src/main.rs"
 
+[features]
+# Memory profiling and benchmarking harness: counting allocator, --memory-report
+# report, alternative JSON DOM comparison. Never enabled in release builds.
+mem-bench = [
+    "dep:bumpalo",
+    "dep:cold-string",
+    "dep:compact_str",
+    "dep:datavalue-rs",
+    "dep:hipstr",
+    "dep:nanoserde",
+    "dep:smallstr",
+    "dep:smallvec",
+    "dep:smol_str",
+    "dep:smartstring",
+    "dep:sonic-rs",
+    "dep:thunderdome",
+    "dep:tinyvec",
+]
+
 [dependencies]
 chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock", "alloc"] }
 clap = { version = "=4.6.7", features = ["derive", "wrap_help", "env"] }
@@ -41,9 +60,45 @@ serde_json = { version = "=1.0.154", features = ["preserve_order", "raw_value"] 
 thiserror = "=2.0.21"
 unicode-width = "=0.2.3"
 
+# DOM memory comparison harness (feature mem-bench only, never in release builds).
+bumpalo = { version = "=3.20.4", optional = true }
+cold-string = { version = "=0.5.0", optional = true }
+compact_str = { version = "=0.10.0", optional = true, default-features = false, features = ["std"] }
+datavalue-rs = { version = "=0.3.3", optional = true }
+hipstr = { version = "=0.8.0", optional = true, default-features = false, features = ["std"] }
+nanoserde = { version = "=0.2.1", optional = true, default-features = false, features = ["std", "json"] }
+smallstr = { version = "=0.3.1", optional = true, default-features = false, features = ["std"] }
+smallvec = { version = "=1.16.5", optional = true, default-features = false }
+smol_str = { version = "=0.3.7", optional = true, default-features = false, features = ["std"] }
+smartstring = { version = "=2.0.0", optional = true, default-features = false, features = ["std"] }
+sonic-rs = { version = "=0.5.11", optional = true }
+thunderdome = { version = "=0.6.1", optional = true, default-features = false, features = ["std"] }
+tinyvec = { version = "=1.13.3", optional = true, default-features = false, features = ["alloc"] }
+
+[[example]]
+name = "benchgen"
+
+[[example]]
+name = "memcompare"
+required-features = ["mem-bench"]
+
+[[example]]
+name = "strvec_compare"
+required-features = ["mem-bench"]
+
+[[example]]
+name = "arena_compare"
+required-features = ["mem-bench"]
+
+[[example]]
+name = "pipeline_compare"
+required-features = ["mem-bench"]
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "=0.61.2", default-features = false, features = [
     "Win32_Foundation",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
     "Win32_UI_Input_KeyboardAndMouse",
 ] }
 
