@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- git-cliff: end of header -->
 
+## [Unreleased]
+
+### Performance
+
+- *(record)* [**breaking**] Store parsed payload as ijson::IValue
+
 ## [0.1.4] - 2026-11-11
 
 ### Added

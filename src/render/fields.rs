@@ -2,7 +2,7 @@
 
 use std::cmp::Ordering;
 
-use serde_json::Value;
+use ijson::IValue;
 
 use crate::cli::Config;
 use crate::cli::SortDir;
@@ -145,44 +145,53 @@ pub fn value_text(record: &LogRecord, path: &FieldPath) -> (String, Sg) {
     (out, style)
 }
 
-pub const fn kind_style(value: &Value) -> Sg {
-    match value {
-        Value::Null => Sg::Null,
-        Value::Bool(_) => Sg::Bool,
-        Value::Number(_) => Sg::Number,
-        Value::String(_) => Sg::String,
-        Value::Array(_) | Value::Object(_) => Sg::Container,
+pub fn kind_style(value: &IValue) -> Sg {
+    if value.is_null() {
+        Sg::Null
+    } else if value.is_bool() {
+        Sg::Bool
+    } else if value.is_number() {
+        Sg::Number
+    } else if value.is_string() {
+        Sg::String
+    } else {
+        Sg::Container
     }
 }
 
 /// Leaf paths of a record used by kv rendering, in record order, with display labels.
-pub fn leaf_values(record: &LogRecord, max_depth: usize) -> Vec<(String, &Value)> {
+pub fn leaf_values(record: &LogRecord, max_depth: usize) -> Vec<(String, &IValue)> {
     let mut out = Vec::new();
-    for (key, value) in record.object.iter() {
+    let Some(map) = record.object.as_object() else {
+        return out;
+    };
+    for (key, value) in map.iter() {
         walk_leaves(&mut out, vec![Segment::Key(key.as_str().into())], value, max_depth);
     }
     out
 }
 
-fn walk_leaves<'a>(out: &mut Vec<(String, &'a Value)>, segments: Vec<Segment>, value: &'a Value, depth: usize) {
+fn walk_leaves<'a>(out: &mut Vec<(String, &'a IValue)>, segments: Vec<Segment>, value: &'a IValue, depth: usize) {
     let path = FieldPath::from_segments(segments.clone());
-    match value {
-        Value::Object(map) if depth > 0 => {
-            for (key, child) in map {
+    if depth > 0 {
+        if let Some(map) = value.as_object() {
+            for (key, child) in map.iter() {
                 let mut nested = segments.clone();
                 nested.push(Segment::Key(key.as_str().into()));
                 walk_leaves(out, nested, child, depth - 1);
             }
-        },
-        Value::Array(items) if depth > 0 => {
+            return;
+        }
+        if let Some(items) = value.as_array() {
             for (index, child) in items.iter().enumerate() {
                 let mut nested = segments.clone();
                 nested.push(Segment::Index(index));
                 walk_leaves(out, nested, child, depth - 1);
             }
-        },
-        _ => out.push((path.to_string(), value)),
+            return;
+        }
     }
+    out.push((path.to_string(), value));
 }
 
 /// Sorts record indices by the requested columns, stable, with missing values last.

@@ -12,7 +12,10 @@ use chrono::NaiveDateTime;
 use chrono::TimeZone;
 use chrono::Timelike;
 use chrono::Utc;
-use serde_json::Value;
+
+use ijson::IValue;
+
+use crate::model::value::text_of;
 
 const NS_PER_SEC: i128 = 1_000_000_000;
 
@@ -159,23 +162,23 @@ impl Timestamp {
     }
 
     /// Reads a timestamp from a JSON value (string, epoch number, or object with a `$date` key).
-    pub fn from_value(value: &Value) -> Option<Self> {
-        match value {
-            Value::String(text) => Self::parse(text),
-            Value::Number(number) => {
-                let text = number.to_string();
-                parse_epoch(&text).map(|nanos| Self::from_nanos(nanos, &text))
-            },
-            Value::Object(map) => {
-                for key in ["$date", "$time", "$timestamp"] {
-                    if let Some(found) = map.get(key) {
-                        return Self::from_value(found);
-                    }
-                }
-                None
-            },
-            _ => None,
+    pub fn from_value(value: &IValue) -> Option<Self> {
+        if let Some(text) = value.as_string() {
+            return Self::parse(text.as_str());
         }
+        if value.is_number() {
+            let mut buf = String::new();
+            let text = text_of(value, &mut buf);
+            return parse_epoch(text.as_str()).map(|nanos| Self::from_nanos(nanos, text.as_str()));
+        }
+        if let Some(map) = value.as_object() {
+            for key in ["$date", "$time", "$timestamp"] {
+                if let Some(found) = map.get(key) {
+                    return Self::from_value(found);
+                }
+            }
+        }
+        None
     }
 
     pub fn format(&self, format: TimeFormat) -> String {
@@ -338,6 +341,10 @@ fn parse_epoch(text: &str) -> Option<i128> {
 mod tests {
     use super::*;
 
+    fn ivalue(json: serde_json::Value) -> IValue {
+        ijson::to_value(json).expect("fixture value")
+    }
+
     #[test]
     fn epoch_units_are_detected_from_magnitude() {
         assert_eq!(Timestamp::parse("1700000000").unwrap().nanos(), 1_700_000_000_000_000_000);
@@ -403,15 +410,15 @@ mod tests {
 
     #[test]
     fn json_values_are_accepted() {
-        assert_eq!(Timestamp::from_value(&serde_json::json!(1700000000)).unwrap().nanos(), 1_700_000_000_000_000_000);
+        assert_eq!(Timestamp::from_value(&ivalue(serde_json::json!(1700000000))).unwrap().nanos(), 1_700_000_000_000_000_000);
         assert_eq!(
-            Timestamp::from_value(&serde_json::json!({ "$date": "2023-11-14T22:13:20.123Z" }))
+            Timestamp::from_value(&ivalue(serde_json::json!({ "$date": "2023-11-14T22:13:20.123Z" })))
                 .unwrap()
                 .format(TimeFormat::UtcDateTime),
             "2023-11-14 22:13:20.123"
         );
         assert!(Timestamp::parse("not a time").is_none());
-        assert!(Timestamp::from_value(&serde_json::json!(true)).is_none());
+        assert!(Timestamp::from_value(&ivalue(serde_json::json!(true))).is_none());
     }
 
     #[test]

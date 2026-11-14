@@ -1,6 +1,6 @@
 //! Record rendering into styled cells for every output mode.
 
-use serde_json::Value;
+use ijson::IValue;
 
 use crate::cli::Config;
 use crate::cli::RenderChoice;
@@ -199,7 +199,7 @@ pub fn kv_spans(text: &str) -> Vec<Cell> {
 
 pub fn json_cells(record: &LogRecord, pretty: bool) -> Vec<Cell> {
     let mut cells = Vec::new();
-    json::spans(&Value::Object(record.object.clone()), pretty, &mut cells);
+    json::spans(&record.object, pretty, &mut cells);
     cells
 }
 
@@ -221,7 +221,7 @@ fn is_covered(path: &FieldPath, shown: &[FieldPath], excluded: &[FieldPath]) -> 
         || shown.iter().any(|shown| shown == path || path.starts_with(shown))
 }
 
-fn kind_style_of(value: &Value) -> Sg {
+fn kind_style_of(value: &IValue) -> Sg {
     crate::render::fields::kind_style(value)
 }
 

@@ -2,8 +2,7 @@
 
 use std::str::FromStr;
 
-use serde_json::Map;
-use serde_json::Value;
+use ijson::IValue;
 
 use crate::model::field::FieldPath;
 use crate::model::level::LogLevel;
@@ -92,27 +91,27 @@ impl FieldAliases {
         })
     }
 
-    fn first_value<'a>(&self, list: &[FieldPath], object: &'a Map<String, Value>) -> Option<&'a Value> {
+    fn first_value<'a>(&self, list: &[FieldPath], object: &'a IValue) -> Option<&'a IValue> {
         list.iter().find_map(|path| path.get(object))
     }
 
     /// The alias path that actually supplied a value, used to avoid repeating it in kv output.
-    pub fn first_path(&self, list: &[FieldPath], object: &Map<String, Value>) -> Option<FieldPath> {
+    pub fn first_path(&self, list: &[FieldPath], object: &IValue) -> Option<FieldPath> {
         list.iter()
             .filter(|path| !path.is_empty())
             .find(|path| path.get(object).is_some())
             .cloned()
     }
 
-    pub fn timestamp_value<'a>(&self, object: &'a Map<String, Value>) -> Option<&'a Value> {
+    pub fn timestamp_value<'a>(&self, object: &'a IValue) -> Option<&'a IValue> {
         self.first_value(&self.timestamp, object)
     }
 
-    pub fn level_value<'a>(&self, object: &'a Map<String, Value>) -> Option<&'a Value> {
+    pub fn level_value<'a>(&self, object: &'a IValue) -> Option<&'a IValue> {
         self.first_value(&self.level, object)
     }
 
-    pub fn message_value<'a>(&self, object: &'a Map<String, Value>) -> Option<&'a Value> {
+    pub fn message_value<'a>(&self, object: &'a IValue) -> Option<&'a IValue> {
         self.first_value(&self.message, object)
     }
 }
@@ -137,7 +136,7 @@ pub struct LogRecord {
     pub timestamp: Option<Timestamp>,
     pub level: Option<LogLevel>,
     pub message: Option<String>,
-    pub object: Map<String, Value>,
+    pub object: IValue,
     pub raw: Option<Box<str>>,
 }
 
@@ -147,7 +146,7 @@ impl LogRecord {
         source: u32,
         line: u64,
         offset: usize,
-        object: Map<String, Value>,
+        object: IValue,
         aliases: &FieldAliases,
     ) -> Self {
         let timestamp = aliases
@@ -175,11 +174,13 @@ impl LogRecord {
     }
 
     /// Record for a line that failed to parse, kept so the line is still visible.
+    /// The line text is stored once, as the `raw` field of the object.
     pub fn invalid(source: u32, line: u64, offset: usize, reason: &str, raw: &str) -> Self {
-        let mut object = Map::new();
-        object.insert("level".to_owned(), Value::String("INVALID".to_owned()));
-        object.insert("message".to_owned(), Value::String(reason.to_owned()));
-        object.insert("raw".to_owned(), Value::String(raw.to_owned()));
+        let object = IValue::from(serde_json::json!({
+            "level": "INVALID",
+            "message": reason,
+            "raw": raw,
+        }));
         Self {
             source,
             line,
@@ -188,15 +189,15 @@ impl LogRecord {
             level: Some(LogLevel::Custom("INVALID".to_owned())),
             message: Some(reason.to_owned()),
             object,
-            raw: Some(raw.into()),
+            raw: None,
         }
     }
 
     pub fn is_invalid(&self) -> bool {
-        self.raw.is_some() && matches!(self.level, Some(LogLevel::Custom(_)))
+        matches!(self.level, Some(LogLevel::Custom(_))) && (self.raw.is_some() || self.object.get("raw").is_some())
     }
 
-    pub fn value_at(&self, path: &FieldPath) -> Option<&Value> {
+    pub fn value_at(&self, path: &FieldPath) -> Option<&IValue> {
         path.get(&self.object)
     }
 
@@ -205,7 +206,16 @@ impl LogRecord {
     }
 
     pub fn raw_text(&self) -> &str {
-        self.raw.as_deref().unwrap_or_default()
+        match self.raw.as_deref() {
+            Some(text) => text,
+            // Invalid records keep the line text in the object payload only.
+            None => self
+                .object
+                .get("raw")
+                .and_then(|value| value.as_string())
+                .map(|text| text.as_str())
+                .unwrap_or_default(),
+        }
     }
 
     /// Timestamp rendered for display; empty when the record has no timestamp.
@@ -217,12 +227,17 @@ impl LogRecord {
     }
 }
 
-fn unparsed_stamp(value: &Value) -> Option<Timestamp> {
-    match value {
-        Value::String(text) if !text.trim().is_empty() => Some(Timestamp::from_nanos(UNPARSED_NANOS, text)),
-        Value::Number(number) => Some(Timestamp::from_nanos(UNPARSED_NANOS, &number.to_string())),
-        _ => None,
+fn unparsed_stamp(value: &IValue) -> Option<Timestamp> {
+    if let Some(text) = value.as_string() {
+        let text = text.as_str();
+        return (!text.trim().is_empty()).then(|| Timestamp::from_nanos(UNPARSED_NANOS, text));
     }
+    if value.is_number() {
+        let mut buf = String::new();
+        let text = text_of(value, &mut buf);
+        return Some(Timestamp::from_nanos(UNPARSED_NANOS, text.as_str()));
+    }
+    None
 }
 
 #[cfg(test)]
@@ -235,8 +250,12 @@ mod tests {
         FieldAliases::with_defaults(&[], &[], &[]).expect("defaults parse")
     }
 
-    fn object(text: &str) -> Map<String, Value> {
+    fn object(text: &str) -> IValue {
         serde_json::from_str(text).expect("fixture is a JSON object")
+    }
+
+    fn ivalue(json: serde_json::Value) -> IValue {
+        ijson::to_value(json).expect("fixture value")
     }
 
     #[test]
@@ -279,8 +298,8 @@ mod tests {
     #[test]
     fn value_at_uses_field_paths() {
         let record = LogRecord::from_object(0, 1, 0, object(r#"{"a":{"b":[1,2]},"x.y":5}"#), &aliases());
-        assert_eq!(record.value_at(&FieldPath::parse("a.b[1]").unwrap()), Some(&json!(2)));
-        assert_eq!(record.value_at(&FieldPath::parse("\"x.y\"").unwrap()), Some(&json!(5)));
+        assert_eq!(record.value_at(&FieldPath::parse("a.b[1]").unwrap()), Some(&ivalue(json!(2))));
+        assert_eq!(record.value_at(&FieldPath::parse("\"x.y\"").unwrap()), Some(&ivalue(json!(5))));
         assert_eq!(record.value_at(&FieldPath::parse("missing").unwrap()), None);
     }
 

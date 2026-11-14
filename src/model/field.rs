@@ -6,8 +6,7 @@ use std::fmt::Formatter;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use serde_json::Map;
-use serde_json::Value;
+use ijson::IValue;
 
 /// One element of a [`FieldPath`].
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
@@ -171,18 +170,21 @@ impl FieldPath {
     }
 
     /// Collects every value addressed by this path (more than one when wildcards are used).
-    pub fn collect<'a>(&self, root: &'a Map<String, Value>, out: &mut Vec<&'a Value>) {
+    pub fn collect<'a>(&self, root: &'a IValue, out: &mut Vec<&'a IValue>) {
         let Some(first) = self.segments.first() else {
+            return;
+        };
+        let Some(map) = root.as_object() else {
             return;
         };
         match first {
             Segment::Key(key) => {
-                if let Some(value) = root.get(key.as_ref()) {
+                if let Some(value) = map.get(key.as_ref()) {
                     collect_value(&self.segments[1..], value, out);
                 }
             },
             Segment::KeyWildcard => {
-                for value in root.values() {
+                for value in map.values() {
                     collect_value(&self.segments[1..], value, out);
                 }
             },
@@ -191,60 +193,65 @@ impl FieldPath {
     }
 
     /// Convenience single-value lookup, first match wins.
-    pub fn get<'a>(&self, root: &'a Map<String, Value>) -> Option<&'a Value> {
+    pub fn get<'a>(&self, root: &'a IValue) -> Option<&'a IValue> {
         let mut out = Vec::with_capacity(1);
         self.collect(root, &mut out);
         out.into_iter().next()
     }
 
     /// Same as [`Self::collect`] starting from any JSON value.
-    pub fn collect_from_value<'a>(&self, root: &'a Value, out: &mut Vec<&'a Value>) {
+    pub fn collect_from_value<'a>(&self, root: &'a IValue, out: &mut Vec<&'a IValue>) {
         collect_value(&self.segments, root, out);
     }
 }
 
-fn collect_value<'a>(segs: &[Segment], value: &'a Value, out: &mut Vec<&'a Value>) {
+fn collect_value<'a>(segs: &[Segment], value: &'a IValue, out: &mut Vec<&'a IValue>) {
     let Some(first) = segs.first() else {
         out.push(value);
         return;
     };
-    match (first, value) {
-        (Segment::Key(key), Value::Object(map)) => {
-            if let Some(child) = map.get(key.as_ref()) {
-                collect_value(&segs[1..], child, out);
-            }
-        },
-        // Keys applied to arrays descend into elements, mirroring how nested arrays of objects are logged.
-        (Segment::Key(key), Value::Array(items)) => {
-            for item in items {
-                if let Value::Object(map) = item
-                    && let Some(child) = map.get(key.as_ref())
-                {
+    match first {
+        Segment::Key(key) => {
+            if let Some(map) = value.as_object() {
+                if let Some(child) = map.get(key.as_ref()) {
                     collect_value(&segs[1..], child, out);
+                }
+            } else if let Some(items) = value.as_array() {
+                // Keys applied to arrays descend into elements, mirroring how nested arrays of objects are logged.
+                for item in items.iter() {
+                    if let Some(map) = item.as_object()
+                        && let Some(child) = map.get(key.as_ref())
+                    {
+                        collect_value(&segs[1..], child, out);
+                    }
                 }
             }
         },
-        (Segment::KeyWildcard, Value::Object(map)) => {
-            for child in map.values() {
+        Segment::KeyWildcard => {
+            if let Some(map) = value.as_object() {
+                for child in map.values() {
+                    collect_value(&segs[1..], child, out);
+                }
+            } else if let Some(items) = value.as_array() {
+                for item in items.iter() {
+                    collect_value(&segs[1..], item, out);
+                }
+            }
+        },
+        Segment::Index(index) => {
+            if let Some(items) = value.as_array()
+                && let Some(child) = items.iter().nth(*index)
+            {
                 collect_value(&segs[1..], child, out);
             }
         },
-        (Segment::KeyWildcard, Value::Array(items)) => {
-            for item in items {
-                collect_value(&segs[1..], item, out);
+        Segment::IndexWildcard => {
+            if let Some(items) = value.as_array() {
+                for item in items.iter() {
+                    collect_value(&segs[1..], item, out);
+                }
             }
         },
-        (Segment::Index(index), Value::Array(items)) => {
-            if let Some(child) = items.get(*index) {
-                collect_value(&segs[1..], child, out);
-            }
-        },
-        (Segment::IndexWildcard, Value::Array(items)) => {
-            for item in items {
-                collect_value(&segs[1..], item, out);
-            }
-        },
-        _ => {},
     }
 }
 
@@ -366,8 +373,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn map(text: &str) -> Map<String, Value> {
+    fn map(text: &str) -> IValue {
         serde_json::from_str(text).expect("test fixture is a JSON object")
+    }
+
+    fn value(json: serde_json::Value) -> IValue {
+        ijson::to_value(json).expect("test fixture value")
     }
 
     #[test]
@@ -393,11 +404,11 @@ mod tests {
         let root = map(r#"{"a":{"b":[1,2]},"arr":[{"k":"v"},{"k":"w"}],"*":"star"}"#);
         let mut out = Vec::new();
         FieldPath::parse("a.b[*]").unwrap().collect(&root, &mut out);
-        assert_eq!(out, vec![&json!(1), &json!(2)]);
+        assert_eq!(out, vec![&value(json!(1)), &value(json!(2))]);
 
         out.clear();
         FieldPath::parse("arr.k").unwrap().collect(&root, &mut out);
-        assert_eq!(out, vec![&json!("v"), &json!("w")]);
+        assert_eq!(out, vec![&value(json!("v")), &value(json!("w"))]);
 
         out.clear();
         FieldPath::parse("*").unwrap().collect(&root, &mut out);

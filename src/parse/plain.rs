@@ -2,6 +2,7 @@
 
 use std::str::FromStr;
 
+use ijson::IValue;
 use serde_json::Map;
 use serde_json::Value;
 
@@ -82,7 +83,7 @@ pub fn parse_line(
         object.insert("message".to_owned(), Value::String(message));
     }
 
-    let mut record = LogRecord::from_object(source, number, offset, object, aliases);
+    let mut record = LogRecord::from_object(source, number, offset, IValue::from(Value::Object(object)), aliases);
     record.raw = Some(raw.into());
     Ok(record)
 }
@@ -230,23 +231,27 @@ mod tests {
         parse_line(0, 1, 0, text.as_bytes(), &aliases(), &PlainOptions::default()).expect("parses")
     }
 
+    fn ivalue(json: serde_json::Value) -> IValue {
+        ijson::to_value(json).expect("fixture value")
+    }
+
     #[test]
     fn parses_full_stdout_line() {
         let record = parse("2023-11-14 22:13:20.123 | INFO | worker started host=web1 pid=42 topic=\"orders in\"");
         assert_eq!(record.level, Some(Level::Info.into()));
         assert_eq!(record.message.as_deref(), Some("worker started"));
-        assert_eq!(record.object.get("host"), Some(&json!("web1")));
-        assert_eq!(record.object.get("pid"), Some(&json!(42)));
-        assert_eq!(record.object.get("topic"), Some(&json!("orders in")));
-        assert_eq!(record.object.get("timestamp"), Some(&json!("2023-11-14 22:13:20.123")));
+        assert_eq!(record.object.get("host"), Some(&ivalue(json!("web1"))));
+        assert_eq!(record.object.get("pid"), Some(&ivalue(json!(42))));
+        assert_eq!(record.object.get("topic"), Some(&ivalue(json!("orders in"))));
+        assert_eq!(record.object.get("timestamp"), Some(&ivalue(json!("2023-11-14 22:13:20.123"))));
         assert!(record.raw_text().starts_with("2023-11-14 22:13:20.123 | INFO |"));
     }
 
     #[test]
     fn nests_dotted_keys() {
         let record = parse("2023-11-14 22:13:20.123 | WARN | slow trace.id=abc-1 trace.ms=12.5");
-        assert_eq!(record.object["trace"]["id"], json!("abc-1"));
-        assert_eq!(record.object["trace"]["ms"], json!(12.5));
+        assert_eq!(record.object.get("trace").and_then(|t| t.get("id")), Some(&ivalue(json!("abc-1"))));
+        assert_eq!(record.object.get("trace").and_then(|t| t.get("ms")), Some(&ivalue(json!(12.5))));
         assert_eq!(record.level, Some(Level::Warn.into()));
     }
 
@@ -268,16 +273,16 @@ mod tests {
     fn typed_scalars() {
         let record =
             parse("2023-11-14 22:13:20.123 | ERROR | boom ok=true bad=false missing=null ratio=0.25 list=[1,2]");
-        assert_eq!(record.object["ok"], json!(true));
-        assert_eq!(record.object["bad"], json!(false));
-        assert_eq!(record.object["missing"], json!(null));
-        assert_eq!(record.object["ratio"], json!(0.25));
-        assert_eq!(record.object["list"], json!([1, 2]));
+        assert_eq!(record.object.get("ok"), Some(&ivalue(json!(true))));
+        assert_eq!(record.object.get("bad"), Some(&ivalue(json!(false))));
+        assert_eq!(record.object.get("missing"), Some(&ivalue(json!(null))));
+        assert_eq!(record.object.get("ratio"), Some(&ivalue(json!(0.25))));
+        assert_eq!(record.object.get("list"), Some(&ivalue(json!([1, 2]))));
     }
 
     #[test]
     fn scalar_key_conflict_does_not_break_parsing() {
         let record = parse("2023-11-14 22:13:20.123 | INFO | a=1 a.b=2");
-        assert_eq!(record.object["a"]["b"], json!(2));
+        assert_eq!(record.object.get("a").and_then(|a| a.get("b")), Some(&ivalue(json!(2))));
     }
 }

@@ -1,5 +1,7 @@
 //! In-RAM record store: records, discovered fields, per-source metadata.
 
+#[cfg(feature = "mem-bench")]
+pub mod memreport;
 pub mod view;
 
 use std::collections::HashMap;
@@ -8,7 +10,7 @@ use std::sync::Arc;
 
 use miette::Result;
 use rayon::prelude::*;
-use serde_json::Value;
+use ijson::IValue;
 
 use crate::cli::Config;
 use crate::cli::FormatSelection;
@@ -158,7 +160,7 @@ impl FieldTree {
         FieldPath::from_segments(segments)
     }
 
-    fn record(&mut self, node: usize, value: &Value, index: usize, fields: &mut Vec<FieldInfo>) {
+    fn record(&mut self, node: usize, value: &IValue, index: usize, fields: &mut Vec<FieldInfo>) {
         if let Some(id) = self.nodes[node].field {
             let info = &mut fields[id];
             info.count += 1;
@@ -185,7 +187,7 @@ impl FieldTree {
         &mut self,
         parent: usize,
         segment: Segment,
-        value: &Value,
+        value: &IValue,
         index: usize,
         fields: &mut Vec<FieldInfo>,
         depth: usize,
@@ -195,23 +197,22 @@ impl FieldTree {
         if depth >= MAX_FIELD_DEPTH {
             return;
         }
-        match value {
-            Value::Object(map) => {
-                for (key, child_value) in map {
-                    self.visit(child, Segment::Key(Arc::from(key.as_str())), child_value, index, fields, depth + 1);
-                }
-            },
-            Value::Array(items) => {
-                for item in items {
-                    self.visit(child, Segment::IndexWildcard, item, index, fields, depth + 1);
-                }
-            },
-            _ => {},
+        if let Some(map) = value.as_object() {
+            for (key, child_value) in map.iter() {
+                self.visit(child, Segment::Key(Arc::from(key.as_str())), child_value, index, fields, depth + 1);
+            }
+        } else if let Some(items) = value.as_array() {
+            for item in items.iter() {
+                self.visit(child, Segment::IndexWildcard, item, index, fields, depth + 1);
+            }
         }
     }
 
     pub fn register_record(&mut self, record: &LogRecord, index: usize, fields: &mut Vec<FieldInfo>) {
-        for (key, value) in &record.object {
+        let Some(map) = record.object.as_object() else {
+            return;
+        };
+        for (key, value) in map.iter() {
             self.visit(0, Segment::Key(Arc::from(key.as_str())), value, index, fields, 0);
         }
     }

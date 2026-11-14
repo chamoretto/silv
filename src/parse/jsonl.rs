@@ -1,7 +1,6 @@
 //! JSON Lines parsing, one JSON object per line.
 
-use serde_json::Map;
-use serde_json::Value;
+use ijson::IValue;
 
 use crate::model::record::FieldAliases;
 use crate::model::record::LogRecord;
@@ -9,8 +8,23 @@ use crate::parse::LineResult;
 use crate::parse::ParseIssue;
 
 pub fn parse_line(source: u32, number: u64, offset: usize, bytes: &[u8], aliases: &FieldAliases) -> LineResult {
-    match serde_json::from_slice::<Map<String, Value>>(bytes) {
-        Ok(object) => Ok(LogRecord::from_object(source, number, offset, object, aliases)),
+    match serde_json::from_slice::<IValue>(bytes) {
+        Ok(object) if object.is_object() => Ok(LogRecord::from_object(source, number, offset, object, aliases)),
+        Ok(_) => {
+            let text = String::from_utf8_lossy(bytes).into_owned();
+            let reason = if text.starts_with('[') {
+                "line is a JSON array, a record must be an object".to_owned()
+            } else {
+                "line is not a JSON object".to_owned()
+            };
+            Err(ParseIssue {
+                source,
+                line: number,
+                offset,
+                reason,
+                raw: text,
+            })
+        },
         Err(error) => {
             let text = String::from_utf8_lossy(bytes).into_owned();
             Err(ParseIssue {
@@ -58,6 +72,10 @@ mod tests {
         FieldAliases::with_defaults(&[], &[], &[]).expect("defaults")
     }
 
+    fn ivalue(json: serde_json::Value) -> IValue {
+        ijson::to_value(json).expect("fixture value")
+    }
+
     #[test]
     fn parses_object_line() {
         let record = parse_line(
@@ -71,7 +89,10 @@ mod tests {
         assert_eq!(record.line, 7);
         assert_eq!(record.level, Some(Level::Info.into()));
         assert_eq!(record.stamp(TimeFormat::UtcDateTime), "2023-11-14 22:13:20.123");
-        assert_eq!(record.object.get("nested").map(|v| &v["a"][1]), Some(&json!(2)));
+        assert_eq!(
+            record.object.get("nested").and_then(|v| v.get("a")).and_then(|a| a.get(1)),
+            Some(&ivalue(json!(2))),
+        );
     }
 
     #[test]
