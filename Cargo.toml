@@ -8,7 +8,6 @@ description = "Simple interactive log viewer: Kibana-like JSON Lines viewing in 
 license = "MIT"
 keywords = ["logs", "tui", "jsonlines", "viewer", "kibana"]
 repository = "https://github.com/chamoretto/silv"
-homepage = "https://github.com/chamoretto/silv"
 documentation = "https://docs.rs/silv"
 readme = "README.md"
 categories = ["command-line-utilities", "development-tools::debugging"]
