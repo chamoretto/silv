@@ -254,21 +254,20 @@ Examples:
   cat app.jsonl | silv -p --filter-eq level WARN --render kv
   silv -p app.jsonl --filter 'level=WARN and not msg~health'
   silv -i logs/ --include '*.jsonl' -r --max-records 100000
-  silv update --check          # check for a new release (exit 1 when one is available)
+  silv update --check          # check for a new release (exit: 1 available, 0 current, 2 trouble)
   silv update                  # install the newest stable release
   silv update --repo-url https://github.com/you/silv-fork
-  silv update --force          # self-update a cargo-managed binary (cargo tracks it)";
+  silv update --force          # self-update a cargo-managed binary (cargo tracks it)
 
-const KEYS: &str = "\
 Interactive keys:
   /            focus search bar         F            filter wizard: field, operator, value
-  Tab / S-Tab  focus header cell        Enter        open record / apply input / sort focused column
+  Tab / S-Tab  cycle focus areas        Enter        open record / apply input / sort focused column
   s            sort focused column      c            field picker (toggle columns)
   j k, PgUp..  move row                 g G          first / last row
   d            delete focused filter    x            clear search
   u            update repo url          update line: Tab reaches it, Left/Right choose the button, Enter presses it
-  Esc          close overlay, clear search, quit     q, Ctrl-C  quit
-  Mouse        click row = detail, click header = sort, wheel = scroll";
+  Esc          close overlay, leave mode            q, Ctrl-C  quit
+  Mouse        click row = detail, click header = drag mode (Enter/2nd click sorts), wheel = scroll";
 
 /// Raw arguments as parsed by clap.
 #[derive(Parser, Debug, Clone)]
@@ -467,8 +466,10 @@ pub struct Cli {
     pub quiet: bool,
 
     /// Release repository for the interactive update check: owner/repo,
-    /// https://github.com/owner/repo, git@github.com:owner/repo.git, a GitHub Enterprise
-    /// api url; a non-github host is used as the api base over https
+    /// https://github.com/owner/repo, git@github.com:owner/repo.git, ssh://git@github.com/...,
+    /// a GitHub Enterprise api url (https://host/api/v3/owner/repo). The url scheme is kept
+    /// (http is accepted for local test apis); ssh forms always address github.com.
+    /// A non-github origin becomes the api base; GITHUB_TOKEN is never sent to it
     #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
     pub repo_url: Option<RepoRef>,
 
@@ -486,14 +487,17 @@ pub enum Command {
     /// Update silv to the newest published release
     Update {
         /// Only report whether an update is available, change nothing.
-        /// Exit code: 1 when an update is available, 0 when up to date (grep-like).
+        /// Exit code: 1 when an update is available, 0 when up to date, 2 when the
+        /// check cannot complete (repository unreachable; grep-like: branch on it).
         #[arg(long)]
         check: bool,
 
         /// Release repository to check and update from, for moved repos and forks.
         /// Accepted: owner/repo, https://github.com/owner/repo, git@github.com:owner/repo.git,
-        /// ssh://git@github.com/owner/repo.git, a GitHub Enterprise api url
-        /// (https://host/api/v3/owner/repo). A non-github host is used as the api base over https.
+        /// ssh://git@github.com/... (ssh forms always address github.com), a GitHub Enterprise
+        /// api url (https://host/api/v3/owner/repo). The url scheme is kept (http is accepted
+        /// for local test apis); a non-github origin becomes the api base, and GITHUB_TOKEN
+        /// is never sent to it.
         #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
         repo_url: Option<RepoRef>,
 
@@ -885,11 +889,6 @@ fn pair_leaves(values: &[String], op: LeafOp, ctx: &FilterContext) -> Result<Vec
     Ok(out)
 }
 
-/// Interactive key help, shown by the help overlay.
-pub const fn key_help() -> &'static str {
-    KEYS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1007,8 +1006,14 @@ mod tests {
     }
 
     #[test]
-    fn key_help_lists_the_interactive_keys() {
-        assert!(key_help().contains("focus search bar"));
+    fn long_help_carries_the_examples_and_the_interactive_key_sheet() {
+        // The KEYS block must reach `--help` (after_help), that is its only surface.
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("Examples:"), "the examples block is in the long help");
+        assert!(help.contains("Interactive keys:"), "the key sheet is in the long help");
+        assert!(help.contains("focus search bar"), "the key sheet lists the keys");
+        assert!(help.contains("update line: Tab reaches it"), "the update line keys are listed");
     }
 
     #[test]

@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(update)* Harden self-update checks, installs, cargo-managed binary
 - *(update)* Correct release selection, token scope, exit codes
 - *(app)* TUI update-line safety and modal isolation
+- *(cli)* Key sheet reaches --help, flag docs complete, exit 2
 
 ### Documentation
 
