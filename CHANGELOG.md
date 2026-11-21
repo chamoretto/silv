@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - *(update)* Self-update from github releases with a TUI update line and changelog
+- *(app)* Tab-focusable update line with Enter to press the buttons
 
 ### Fixed
 

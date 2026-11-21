@@ -266,6 +266,7 @@ Interactive keys:
   s            sort focused column      c            field picker (toggle columns)
   j k, PgUp..  move row                 g G          first / last row
   d            delete focused filter    x            clear search
+  u            update repo url          update line: Tab reaches it, Left/Right choose the button, Enter presses it
   Esc          close overlay, clear search, quit     q, Ctrl-C  quit
   Mouse        click row = detail, click header = sort, wheel = scroll";
 
