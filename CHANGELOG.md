@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Satisfy rust-clippy 1.100 lints
+- *(update)* Spaced --check output with a changelog header, update line without the leading gap
 
 ### Documentation
 

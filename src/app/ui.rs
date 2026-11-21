@@ -770,16 +770,21 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
     }
     let current = crate::update::current_version();
     let latest = state.update_latest().unwrap_or("?");
-    let left = format!(" update available: silv {current} -> {latest} (click to update) ");
     let right = " changelog ".to_owned();
+    let width = usize::from(area.width);
+    let right_w = crate::render::text::width(&right).min(width);
+    let text = format!(
+        "update available: {current} -> {latest} (click to update, to disable checks use \"--no-update\" or \"SILV_NO_UPDATE=true\") "
+    );
+    // The hint stays in the yellow button even when squeezed: it is cut with the ellipsis
+    // so the user can see the text goes on.
+    let left = crate::render::text::truncate(&text, width.saturating_sub(right_w).max(1));
     let left_style = Style::default()
         .fg(Color::Black)
         .bg(Color::Yellow)
         .add_modifier(Modifier::BOLD);
     let right_style = Style::default().fg(Color::Black).bg(Color::LightBlue);
-    let width = usize::from(area.width);
     let left_w = crate::render::text::width(&left).min(width);
-    let right_w = crate::render::text::width(&right).min(width);
     let right_x = width.saturating_sub(right_w);
     state.update_btn = Rect {
         x: area.x,

@@ -354,7 +354,10 @@ pub fn run_cli(check: bool, repo: &RepoRef) -> Result<()> {
         UpdateOutcome::Available { latest, notes } => {
             if check {
                 eprintln!("update available: silv {} -> {}", target.current, latest);
+                eprintln!();
+                eprintln!("changelog, the releases between silv {} and {latest}:", target.current);
                 print_notes(&notes);
+                eprintln!();
                 eprintln!("run `silv update` to install it");
                 return Ok(());
             }

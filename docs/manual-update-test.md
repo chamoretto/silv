@@ -26,8 +26,19 @@ in its banner: `http://127.0.0.1:8080/testowner/testrepo`. Options: `--version`,
 target\debug\silv.exe update --check --repo-url http://127.0.0.1:8080/testowner/testrepo
 ```
 
-Expected: `update available: silv 0.3.0 -> 9.9.9`, the release notes of both mock releases,
-`run 'silv update' to install it`, exit code 0.
+Expected:
+
+```
+update available: silv 0.3.0 -> 9.9.9
+
+changelog, the releases between silv 0.3.0 and 9.9.9:
+  v9.9.9 (2026-11-20)
+    ...
+
+run `silv update` to install it
+```
+
+Exit code 0, everything on stderr.
 
 ## 3. CLI: perform (on a copy, not on your build)
 
@@ -51,10 +62,18 @@ echo '{"message":"hello","level":"INFO"}' > $env:TEMP\t.jsonl
 target\debug\silv.exe $env:TEMP\t.jsonl --repo-url http://127.0.0.1:8080/testowner/testrepo
 ```
 
-At startup silv checks releases in the background. Within a second the bottom of the screen shows:
+At startup silv checks releases in the background. Within a second the yellow update button
+appears at the very bottom. Its full text is:
 
 ```
- update available: silv 0.3.0 -> 9.9.9 (click to update)                changelog
+update available: 0.3.0 -> 9.9.9 (click to update, to disable checks use "--no-update" or "SILV_NO_UPDATE=true")
+```
+
+On a narrow terminal it is cut with `..` in front of the `changelog` button, so the hint stays
+visible as an option:
+
+```
+update available: 0.3.0 -> 9.9.9 (click to update, to disable checks use ..   changelog
 ```
 
 - Click the left button: the update runs (the check thread prints progress), the line disappears,

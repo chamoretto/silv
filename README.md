@@ -303,7 +303,8 @@ silv update --repo-url https://github.com/you/silv-fork   # moved repo, renamed 
 Set `GITHUB_TOKEN` to raise the api rate limit (unauthenticated checks are limited per IP).
 
 In interactive mode a background check runs at startup. When a newer release exists, a line
-appears at the very bottom: `update available: silv 0.2.0 -> 0.3.0 (click to update)` on the
+appears at the very bottom: `update available: 0.2.0 -> 0.3.0 (click to update, to disable
+checks use "--no-update" or "SILV_NO_UPDATE=true")` on the
 left, a `changelog` button (the release notes between your version and the newest) on the right.
 Clicking the left button performs the update; the running process keeps the old binary until you
 restart it. When the repository is unreachable (offline, moved, private), silv opens a pop-up

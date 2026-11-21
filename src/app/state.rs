@@ -1869,11 +1869,9 @@ impl AppState {
             UpdateEvent::Checked(outcome) => {
                 self.update_checking = false;
                 match outcome {
-                    UpdateOutcome::Available { latest, notes } => {
-                        self.message = Some(format!(
-                            "update available: silv {} -> {latest}, click the update line",
-                            crate::update::current_version()
-                        ));
+                    UpdateOutcome::Available { notes, .. } => {
+                        // No status bar message: the update line itself is the prompt,
+                        // the rows line stays clean.
                         self.update_available = Some(notes);
                     },
                     UpdateOutcome::UpToDate => {},
