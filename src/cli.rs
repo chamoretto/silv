@@ -254,9 +254,10 @@ Examples:
   cat app.jsonl | silv -p --filter-eq level WARN --render kv
   silv -p app.jsonl --filter 'level=WARN and not msg~health'
   silv -i logs/ --include '*.jsonl' -r --max-records 100000
-  silv update --check          # check for a new release
-  silv update                  # install the newest release
-  silv update --repo-url https://github.com/you/silv-fork";
+  silv update --check          # check for a new release (exit 1 when one is available)
+  silv update                  # install the newest stable release
+  silv update --repo-url https://github.com/you/silv-fork
+  silv update --force          # self-update a cargo-managed binary (cargo tracks it)";
 
 const KEYS: &str = "\
 Interactive keys:
@@ -464,7 +465,9 @@ pub struct Cli {
     #[arg(short = 'q', long)]
     pub quiet: bool,
 
-    /// Release repository url for update checks and self-update (github.com/owner/repo)
+    /// Release repository for the interactive update check: owner/repo,
+    /// https://github.com/owner/repo, git@github.com:owner/repo.git, a GitHub Enterprise
+    /// api url; a non-github host is used as the api base over https
     #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
     pub repo_url: Option<RepoRef>,
 
@@ -481,13 +484,24 @@ pub struct Cli {
 pub enum Command {
     /// Update silv to the newest published release
     Update {
-        /// Only report whether an update is available, change nothing
+        /// Only report whether an update is available, change nothing.
+        /// Exit code: 1 when an update is available, 0 when up to date (grep-like).
         #[arg(long)]
         check: bool,
 
-        /// Repository url to pull releases from, for moved repos and forks (github.com/owner/repo)
+        /// Release repository to check and update from, for moved repos and forks.
+        /// Accepted: owner/repo, https://github.com/owner/repo, git@github.com:owner/repo.git,
+        /// ssh://git@github.com/owner/repo.git, a GitHub Enterprise api url
+        /// (https://host/api/v3/owner/repo). A non-github host is used as the api base over https.
         #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
         repo_url: Option<RepoRef>,
+
+        /// Replace a cargo-managed binary anyway. A binary in the cargo install directory
+        /// (`~/.cargo/bin`) is cargo-managed: cargo tracks its version, so the update is
+        /// refused by default; --force performs it and leaves cargo's install list behind
+        /// (`cargo install --git <url> --force` re-syncs it).
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -1003,14 +1017,17 @@ mod tests {
             cli.command,
             Some(Command::Update {
                 check: false,
-                repo_url: None
+                repo_url: None,
+                force: false,
             })
         ));
         let cli = Cli::try_parse_from(["silv", "update", "--check"]).expect("parses");
         assert!(matches!(cli.command, Some(Command::Update { check: true, .. })));
+        let cli = Cli::try_parse_from(["silv", "update", "--force"]).expect("parses");
+        assert!(matches!(cli.command, Some(Command::Update { force: true, .. })));
         let cli = Cli::try_parse_from(["silv", "update", "--repo-url", "you/silv-fork"]).expect("parses");
         assert!(
-            matches!(cli.command, Some(Command::Update { check: false, repo_url: Some(ref repo) }) if repo.author == "you")
+            matches!(cli.command, Some(Command::Update { check: false, repo_url: Some(ref repo), .. }) if repo.author == "you")
         );
         let cli = Cli::try_parse_from(["silv", "app.jsonl"]).expect("a file argument is not a subcommand");
         assert!(cli.command.is_none());

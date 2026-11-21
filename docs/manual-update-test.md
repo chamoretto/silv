@@ -4,10 +4,11 @@
 the whole self-update flow against localhost: the check, the changelog, the download, the
 self-replace, and the unreachable-repo pop-up. Python 3, no dependencies.
 
-The mock answers the two routes the updater uses (`/repos/{owner}/{repo}/releases` and the asset
-download) and serves two fake releases: `v9.9.9` and `v0.4.0`, so the changelog has something to
-show. The "new binary" asset defaults to `target/debug/silv[.exe]`, so a self-update lands on a
-runnable binary.
+The mock answers the routes the updater uses - `/repos/{owner}/{repo}/releases` (the listing),
+`/repos/{owner}/{repo}/releases/tags/{tag}` (the single release the pinned install asks for) and
+the asset download - and serves two fake releases: `v9.9.9` and `v0.4.0`, so the changelog has
+something to show. The "new binary" asset defaults to `target/debug/silv[.exe]`, so a self-update
+lands on a runnable binary.
 
 ## 1. Build and start the mock
 
@@ -18,7 +19,8 @@ python scripts/mock-update-api.py --port 8080
 
 Keep that terminal open (it logs every request). The repo url silv should be pointed at is printed
 in its banner: `http://127.0.0.1:8080/testowner/testrepo`. Options: `--version`,
-`--extra-version`, `--asset <file>`, `--triple <target>`.
+`--extra-version`, `--prerelease <version>` (publishes a release candidate above the newest stable
+one, see section 7), `--asset <file>`, `--triple <target>`.
 
 ## 2. CLI: check
 
@@ -38,7 +40,7 @@ changelog, the releases between silv 0.3.0 and 9.9.9:
 run `silv update` to install it
 ```
 
-Exit code 0, everything on stderr.
+Exit code 1 (an update was found, grep-like: 0 means up to date), everything on stderr.
 
 ## 3. CLI: perform (on a copy, not on your build)
 
@@ -112,16 +114,23 @@ update available: 0.3.0 -> 9.9.9 (click to update, to disable checks use ..   ch
 - Click the left button: the update runs (the check thread prints progress), the line disappears,
   the status bar shows `update: silv updated to 9.9.9, restart silv to use it`.
   This replaces `target\debug\silv.exe` itself - rebuild afterwards if you want it back.
+- Keyboard: `Tab` cycles from the rows to the update line (the focused button is the brighter one),
+  `Left`/`Right` choose between the update and the changelog button, `Enter` presses the focused
+  one, `Esc` returns to the rows. The line is skipped by the cycle while it is not shown.
 - Click `changelog`: the overlay shows the notes of v9.9.9 and v0.4.0; `j/k` scroll, `f/b` page,
-  `g/G` ends, wheel works, `Esc` closes.
-- The mock request log shows what silv asked for.
+  `g/G` ends, wheel works, `Esc` closes. The last scroll position shows the last full page.
+- The mock request log shows what silv asked for: the listing, then `/releases/tags/v9.9.9`
+  (the pinned release) and the asset download on a perform.
 
 ## 5. TUI: forks and unreachable repos
 
 - Press `u`: the repository url pop-up opens. Enter `testowner/testrepo`... that is github, not
   the mock, so it will report unreachable. Enter the full mock url
   `http://127.0.0.1:8080/testowner/testrepo` and press Enter: the check re-runs against the mock
-  and the update line appears.
+  and the update line appears. Submitting a url while a check is still in flight is not lost: the
+  running check belongs to the old repository, its answer is dropped, the new one takes over.
+- Esc closes the pop-up, like every other window; clicks outside it are inert (you cannot lose
+  typed text by clicking around).
 - Stop the mock server (Ctrl-C), press `u`, enter the mock url: silv reports it is unreachable and
   keeps the pop-up open for a new url. The same happens automatically at startup when the
   configured repo is unreachable.
@@ -139,6 +148,23 @@ target\debug\silv.exe update --check --repo-url http://127.0.0.1:8080/testowner/
 
 Expected: `silv v0.3.0 is up to date`; in the TUI no update line appears at all.
 
+## 7. Prereleases are never offered
+
+A release train publishes release candidates between stables; silv must offer and install only
+the newest stable release:
+
+```powershell
+python scripts/mock-update-api.py --port 8080 --version 9.9.9 --extra-version 9.9.8 --prerelease 9.9.10-rc.1
+target\debug\silv.exe update --check --repo-url http://127.0.0.1:8080/testowner/testrepo
+```
+
+Expected: the report offers `9.9.9` and exits 1; `9.9.10-rc.1` and its notes are absent.
+`silv update` (on a copy, as in section 3) installs `9.9.9` - the mock log shows the pinned
+request `/repos/testowner/testrepo/releases/tags/v9.9.9`, never the rc. A listing where only a
+prerelease is newer reports `silv v0.3.0 is up to date` and exits 0. The automated versions are
+`check_skips_prerelease_releases`, `check_is_up_to_date_when_only_prereleases_are_newer` and the
+rc-above-stable listing of `update_performs_self_replace_on_a_temp_copy` in `tests/update_mock.rs`.
+
 ## Notes
 
 - The asset name in the listing is `silv-<tag>-<target>[.exe]` for your machine's triple
@@ -146,3 +172,11 @@ Expected: `silv v0.3.0 is up to date`; in the TUI no update line appears at all.
   target, so the mock must run on the machine being updated (or pass `--triple`).
 - `GITHUB_TOKEN` is not needed: the api here is unauthenticated localhost.
 - The automated version of all this is `tests/update_mock.rs` (same mock, in-process).
+- A binary installed by `cargo install` (in `$CARGO_HOME/bin`, `~/.cargo/bin` by default) is
+  detected: the update line says `update using cargo` instead of `click to update`, and pressing
+  the button prints the `cargo install --git <url> --force` command - no self-update runs there, it
+  would desync cargo's install list (verified by hand: after a self-update of a cargo binary,
+  `~/.cargo/.crates2.json` still names the old version, and `cargo install --git <url>` at that
+  version says "already installed, use --force"). The CLI mirrors the refusal: `silv update` exits
+  1 with the cargo command, `silv update --force` performs the replace. Try the detection with
+  `cargo install --path .`, then start `silv`.

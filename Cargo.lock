@@ -2858,6 +2858,7 @@ dependencies = [
  "rayon",
  "regex",
  "self_update",
+ "semver",
  "serde_json",
  "smallstr",
  "smallvec",

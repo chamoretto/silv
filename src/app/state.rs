@@ -4,6 +4,7 @@ use ratatui::crossterm::event::KeyCode;
 use ratatui::crossterm::event::KeyModifiers;
 use ratatui::crossterm::event::MouseEventKind;
 use ratatui::layout::Rect;
+use ratatui::text::Line;
 
 use crate::app::input::Editor;
 use crate::app::keymap::KeyMap;
@@ -47,6 +48,8 @@ pub enum Focus {
     FilterInput,
     Header,
     Rows,
+    /// The bottom update line; in the Tab cycle only while the line is drawn.
+    UpdateLine,
 }
 
 /// Header focus sub-mode: navigate between columns, or reorder the focused one.
@@ -64,12 +67,14 @@ pub enum RowMode {
 }
 
 impl Focus {
-    pub const ORDER: [Self; 5] = [
+    /// Tab cycle order; `UpdateLine` joins the cycle only while the update line is drawn.
+    pub const ORDER: [Self; 6] = [
         Self::Search,
         Self::FilterChips,
         Self::FilterInput,
         Self::Header,
         Self::Rows,
+        Self::UpdateLine,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -79,6 +84,7 @@ impl Focus {
             Self::FilterInput => "filter",
             Self::Header => "fields",
             Self::Rows => "rows",
+            Self::UpdateLine => "update",
         }
     }
 }
@@ -288,6 +294,9 @@ pub struct AppState {
     pub update_available: Option<Vec<ReleaseNote>>,
     /// A background release check is in flight.
     pub update_checking: bool,
+    /// Bumped on every spawned check; events from an older generation are stale
+    /// (a repository url was submitted while the old check was in flight) and get dropped.
+    update_check_generation: u64,
     /// The update download/replace is in flight.
     pub updating: bool,
     /// Open changelog overlay (delta between the running and the newest version).
@@ -297,6 +306,11 @@ pub struct AppState {
     /// Hit rects of the update line buttons, recorded while drawing.
     pub update_btn: Rect,
     pub changelog_btn: Rect,
+    /// While the update line is focused: 0 = the update button, 1 = the changelog button.
+    pub update_focus_index: usize,
+    /// The binary is a `cargo install` artifact (it sits in the cargo bin dir): the update
+    /// line tells the user to update through cargo, since a self-update desyncs cargo's list.
+    pub update_cargo_managed: bool,
     /// Update worker events; `run_loop` drains them via `poll_update_events`.
     pub update_events: (std::sync::mpsc::Sender<UpdateEvent>, std::sync::mpsc::Receiver<UpdateEvent>),
     pub dirty: bool,
@@ -374,11 +388,14 @@ impl AppState {
             update_repo: config.update_repo.clone().unwrap_or_else(RepoRef::default_repo),
             update_available: None,
             update_checking: false,
+            update_check_generation: 0,
             updating: false,
             changelog: None,
             repo_prompt: None,
             update_btn: Rect::default(),
             changelog_btn: Rect::default(),
+            update_focus_index: 0,
+            update_cargo_managed: crate::update::cargo_managed_install(),
             update_events: std::sync::mpsc::channel(),
             dirty: true,
             quit: false,
@@ -958,11 +975,20 @@ impl AppState {
     }
 
     pub fn cycle_focus(&mut self, direction: isize) {
-        let len = isize::try_from(Focus::ORDER.len()).unwrap_or(isize::MAX);
-        let current = Focus::ORDER.iter().position(|f| *f == self.focus).unwrap_or(0);
+        // The update line joins the cycle only while it is drawn; when it hides,
+        // a focus on it falls back to the rows.
+        let order: Vec<Focus> = Focus::ORDER
+            .into_iter()
+            .filter(|focus| *focus != Focus::UpdateLine || self.update_line_visible())
+            .collect();
+        if order.iter().all(|focus| *focus != self.focus) {
+            self.focus = Focus::Rows;
+        }
+        let len = isize::try_from(order.len()).unwrap_or(isize::MAX);
+        let current = order.iter().position(|f| *f == self.focus).unwrap_or(0);
         let current = isize::try_from(current).unwrap_or(0);
         let next = (current + direction).rem_euclid(len);
-        self.focus = Focus::ORDER[usize::try_from(next).unwrap_or(0)];
+        self.focus = order[usize::try_from(next).unwrap_or(0)];
         self.update_status();
     }
 
@@ -1244,6 +1270,7 @@ impl AppState {
             Focus::FilterChips => self.handle_chips_key(key),
             Focus::Header => self.handle_header_key(key),
             Focus::Rows => self.handle_rows_key(key),
+            Focus::UpdateLine => self.handle_update_line_key(key),
         }
         self.dirty = true;
     }
@@ -1547,6 +1574,31 @@ impl AppState {
         }
     }
 
+    /// The focused bottom update line: Left/Right choose the button, Enter presses it.
+    fn handle_update_line_key(&mut self, key: KeyPress) {
+        if !self.update_line_visible() {
+            self.focus = Focus::Rows;
+            return;
+        }
+        match key.bind {
+            KeyCode::Char('q') => self.quit(),
+            KeyCode::Left | KeyCode::Char('h') => self.update_focus_index = 0,
+            KeyCode::Right | KeyCode::Char('l') => self.update_focus_index = 1,
+            KeyCode::Tab => self.cycle_focus(1),
+            KeyCode::BackTab => self.cycle_focus(-1),
+            KeyCode::Esc => self.focus = Focus::Rows,
+            KeyCode::Enter => {
+                if self.update_focus_index == 0 {
+                    self.start_update();
+                } else {
+                    self.open_changelog();
+                }
+            },
+            KeyCode::Char('u') if !self.config.no_update => self.open_repo_prompt(),
+            _ => {},
+        }
+    }
+
     /// Space on rows: toggle the value picker; Enter on a cell starts a filter on that value.
     pub fn toggle_row_pick(&mut self) {
         if self.row_mode == RowMode::Pick {
@@ -1598,6 +1650,9 @@ impl AppState {
             },
             Focus::Rows if self.row_mode == RowMode::Pick => {
                 "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
+            },
+            Focus::UpdateLine => {
+                "update line: [Left]/[Right] choose update / changelog, [Enter] press it, [u] repository url, [Esc] rows"
             },
             Focus::Rows => concat!(
                 "rows: [Enter] detail view, [Space] select value to filter by, [j]/[k] move, [f]/[b] page, ",
@@ -1725,7 +1780,7 @@ impl AppState {
             return;
         }
         if self.repo_prompt.is_some() {
-            self.close_repo_prompt();
+            // The pop-up is a text input: clicks elsewhere are inert, Esc closes it.
             return;
         }
         if self.changelog.is_some() {
@@ -1733,8 +1788,12 @@ impl AppState {
         }
         if self.update_line_visible() && contains(self.areas.update, row) {
             if self.update_btn.contains(ratatui::layout::Position::new(column, row)) {
+                self.focus = Focus::UpdateLine;
+                self.update_focus_index = 0;
                 self.start_update();
             } else if self.changelog_btn.contains(ratatui::layout::Position::new(column, row)) {
+                self.focus = Focus::UpdateLine;
+                self.update_focus_index = 1;
                 self.open_changelog();
             }
             return;
@@ -1823,32 +1882,52 @@ impl AppState {
     }
 
     /// Spawns a background release check; the result arrives via `poll_update_events`.
+    /// Each check gets a new generation: a check already in flight is superseded, and
+    /// its result is dropped when it lands (the typed repository url wins).
     pub fn start_update_check(&mut self) {
-        if self.config.no_update || self.update_checking {
+        if self.config.no_update {
             return;
         }
         self.update_checking = true;
+        self.update_check_generation = self.update_check_generation.wrapping_add(1);
+        let generation = self.update_check_generation;
         let tx = self.update_events.0.clone();
         let target = UpdateTarget::new(self.update_repo.clone());
         std::thread::spawn(move || {
             let outcome = target.check();
-            let _ = tx.send(UpdateEvent::Checked(outcome));
+            let _ = tx.send(UpdateEvent::Checked(generation, outcome));
         });
     }
 
     /// Spawns the download-and-replace worker, triggered by the update button.
+    /// A cargo-managed install is not self-updated: cargo tracks its version, so the
+    /// button prints the cargo command that keeps the bookkeeping in sync.
     pub fn start_update(&mut self) {
         if self.config.no_update || self.updating {
             return;
         }
+        if self.update_cargo_managed {
+            self.message = Some(format!(
+                "update: this binary is a cargo install, update with `cargo install --git {} --force` \
+                 (a self-update would desync cargo's install list)",
+                self.update_repo.url()
+            ));
+            self.dirty = true;
+            return;
+        }
         self.updating = true;
         self.changelog = None;
+        // The line hides while updating; a focus on it returns to the rows.
+        if self.focus == Focus::UpdateLine {
+            self.focus = Focus::Rows;
+        }
         let latest = self.update_latest().unwrap_or("the latest release").to_owned();
         self.message = Some(format!("update: updating to {latest} ..."));
+        let version = self.update_latest().map(str::to_owned);
         let tx = self.update_events.0.clone();
         let target = UpdateTarget::new(self.update_repo.clone());
         std::thread::spawn(move || {
-            let outcome = target.perform();
+            let outcome = target.perform(version.as_deref());
             let _ = tx.send(UpdateEvent::Performed(outcome));
         });
     }
@@ -1866,7 +1945,12 @@ impl AppState {
 
     pub fn apply_update_event(&mut self, event: UpdateEvent) {
         match event {
-            UpdateEvent::Checked(outcome) => {
+            UpdateEvent::Checked(generation, outcome) => {
+                if generation != self.update_check_generation {
+                    // A repository url was submitted while this check ran: its answer
+                    // is about the old repository, drop it.
+                    return;
+                }
                 self.update_checking = false;
                 match outcome {
                     UpdateOutcome::Available { notes, .. } => {
@@ -1896,12 +1980,20 @@ impl AppState {
                     PerformOutcome::Failed {
                         reason,
                         suggest_repo_url,
+                        suggest_sudo,
                     } => {
-                        self.message = Some(format!("update: failed: {reason}"));
+                        let mut message = format!("update: failed: {reason}");
+                        if suggest_sudo {
+                            message.push_str(" - the binary directory is not writable, try `sudo silv update`");
+                        }
+                        self.message = Some(message);
                         if suggest_repo_url {
                             self.open_repo_prompt();
                         }
                     },
+                }
+                if self.focus == Focus::UpdateLine && !self.update_line_visible() {
+                    self.focus = Focus::Rows;
                 }
             },
         }
@@ -1917,7 +2009,9 @@ impl AppState {
             editor.clear();
         }
         self.repo_prompt = Some(RepoPrompt {
-            message: "enter repository url: owner/repo or https://github.com/owner/repo".to_owned(),
+            message: "enter repository url: owner/repo or https://github.com/owner/repo \
+                      (Esc closes, --no-update / SILV_NO_UPDATE=true disables checks)"
+                .to_owned(),
             editor,
         });
     }
@@ -1927,6 +2021,8 @@ impl AppState {
     }
 
     /// Applies the typed repository url and re-checks in the background.
+    /// The submit supersedes a check that is still in flight: its answer is about
+    /// the previous repository and is dropped when it lands.
     pub fn submit_repo_url(&mut self) {
         let text = self.repo_prompt.as_ref().map(|prompt| prompt.editor.text());
         let Some(text) = text else { return };
@@ -1935,6 +2031,8 @@ impl AppState {
                 self.message = Some(format!("update: checking {} ...", repo.url()));
                 self.update_repo = repo;
                 self.update_available = None;
+                self.update_checking = false;
+                self.update_check_generation = self.update_check_generation.wrapping_add(1);
                 self.close_repo_prompt();
                 self.start_update_check();
             },
@@ -2682,10 +2780,13 @@ mod tests {
     fn update_line_shows_only_when_available_enabled_and_idle() {
         let mut state = state_of(&["{\"a\":1}"]);
         assert!(!state.update_line_visible());
-        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
-            latest: "9.9.9".to_owned(),
-            notes: release_notes("9.9.9"),
-        }));
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
         assert!(state.update_line_visible());
         state.updating = true;
         assert!(!state.update_line_visible());
@@ -2697,7 +2798,7 @@ mod tests {
     #[test]
     fn up_to_date_check_leaves_no_line_and_no_prompt() {
         let mut state = state_of(&["{\"a\":1}"]);
-        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::UpToDate));
+        state.apply_update_event(UpdateEvent::Checked(0, UpdateOutcome::UpToDate));
         assert!(!state.update_line_visible());
         assert!(state.repo_prompt.is_none());
     }
@@ -2705,10 +2806,13 @@ mod tests {
     #[test]
     fn unreachable_check_opens_the_url_prompt_and_u_reopens_it() {
         let mut state = state_of(&["{\"a\":1}"]);
-        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Unreachable {
-            repo: "https://github.com/chamoretto/silv".to_owned(),
-            reason: "offline".to_owned(),
-        }));
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Unreachable {
+                repo: "https://github.com/chamoretto/silv".to_owned(),
+                reason: "offline".to_owned(),
+            },
+        ));
         assert!(state.repo_prompt.is_some());
         assert!(state.message.as_deref().is_some_and(|m| m.contains("offline")));
         state.close_repo_prompt();
@@ -2747,10 +2851,13 @@ mod tests {
     fn changelog_opens_from_the_button_rect_and_scrolls() {
         use ratatui::crossterm::event::MouseButton;
         let mut state = state_of(&["{\"a\":1}"]);
-        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
-            latest: "9.9.9".to_owned(),
-            notes: release_notes("9.9.9"),
-        }));
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
         state.areas.update = Rect {
             x: 0,
             y: 20,
@@ -2785,10 +2892,13 @@ mod tests {
     #[test]
     fn performed_events_clear_the_update_line() {
         let mut state = state_of(&["{\"a\":1}"]);
-        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
-            latest: "9.9.9".to_owned(),
-            notes: release_notes("9.9.9"),
-        }));
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
         state.updating = true;
         state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Updated {
             version: "9.9.9".to_owned(),
@@ -2805,5 +2915,163 @@ mod tests {
         state.updating = false;
         state.start_update();
         assert!(!state.updating, "no_update never spawns a worker");
+    }
+
+    #[test]
+    fn a_cargo_managed_install_is_never_self_updated() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.update_cargo_managed = true;
+        // The click and Enter on the focused button both route here: they must not self-update,
+        // that would replace a binary cargo tracks and desync its install list.
+        state.start_update();
+        assert!(!state.updating, "a cargo install is never self-updated");
+        let message = state.message.as_deref().expect("a message explains the refusal");
+        assert!(message.contains("cargo install --git"), "the cargo command is given: {message}");
+        assert!(message.contains(&state.update_repo.url()), "the command names the repository: {message}");
+    }
+
+    #[test]
+    fn a_repo_url_submitted_mid_check_supersedes_the_in_flight_one() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.config.no_update = true; // suppresses the check thread
+        // A startup check of the default repository is in flight (generation 1).
+        state.update_checking = true;
+        state.update_check_generation = 1;
+        state.repo_prompt = Some(RepoPrompt {
+            message: String::new(),
+            editor: Editor::with_text("you/fork"),
+        });
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert_eq!(state.update_repo.url(), "https://github.com/you/fork", "the url is applied at once");
+        assert_eq!(state.update_check_generation, 2, "the submit starts a new generation");
+        // no_update suppressed the spawned check; mark a new one in flight to test
+        // that a stale answer cannot clear the flag of the running one.
+        state.update_checking = true;
+        // The old check answers late, about the default repository: it must not drive the ui.
+        state.apply_update_event(UpdateEvent::Checked(
+            1,
+            UpdateOutcome::Unreachable {
+                repo: "https://github.com/chamoretto/silv".to_owned(),
+                reason: "late".to_owned(),
+            },
+        ));
+        assert!(state.repo_prompt.is_none(), "the stale answer must not reopen the prompt");
+        state.apply_update_event(UpdateEvent::Checked(
+            1,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        assert!(
+            state.update_available.is_none(),
+            "the stale answer must not show the update line for the old repository"
+        );
+        assert!(state.update_checking, "a stale event must not clear the in-flight flag");
+        // The new generation's answer applies.
+        state.apply_update_event(UpdateEvent::Checked(
+            2,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        assert!(state.update_available.is_some(), "the current generation drives the ui");
+        assert!(!state.update_checking);
+    }
+
+    #[test]
+    fn the_update_line_is_tab_focusable_and_enter_presses_the_changelog() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        assert_eq!(state.focus, Focus::Rows);
+        state.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(state.focus, Focus::UpdateLine, "Tab reaches the update line from the rows");
+        state.handle_key(KeyCode::Left, KeyModifiers::NONE);
+        assert_eq!(state.update_focus_index, 0, "Left selects the update button");
+        state.handle_key(KeyCode::Right, KeyModifiers::NONE);
+        assert_eq!(state.update_focus_index, 1, "Right selects the changelog button");
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.changelog.is_some(), "Enter pressed the focused changelog button");
+        assert!(!state.updating, "Enter on the changelog never starts an update");
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(state.changelog.is_none());
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert_eq!(state.focus, Focus::Rows, "Esc leaves the update line");
+        state.handle_key(KeyCode::BackTab, KeyModifiers::NONE);
+        assert_ne!(state.focus, Focus::UpdateLine, "BackTab cycles from the rows, not to the line");
+    }
+
+    #[test]
+    fn a_focus_on_the_update_line_falls_back_when_the_line_hides() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.focus = Focus::UpdateLine;
+        state.updating = true; // the line hides while updating
+        state.apply_update_event(UpdateEvent::Performed(PerformOutcome::UpToDate));
+        assert_eq!(state.focus, Focus::Rows, "the focus leaves a line that is no longer drawn");
+    }
+
+    #[test]
+    fn the_tab_cycle_skips_the_update_line_while_it_is_hidden() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        for _ in 0..8 {
+            state.handle_key(KeyCode::Tab, KeyModifiers::NONE);
+            assert_ne!(state.focus, Focus::UpdateLine, "no update line, no stop at it");
+        }
+    }
+
+    #[test]
+    fn a_permission_failure_suggests_sudo_not_a_repo_url() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.updating = true;
+        state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Failed {
+            reason: "Permission Denied: read-only directory".to_owned(),
+            suggest_repo_url: false,
+            suggest_sudo: true,
+        }));
+        assert!(
+            state.message.as_deref().is_some_and(|m| m.contains("sudo silv update")),
+            "the status bar names the sudo remedy: {:?}",
+            state.message
+        );
+        assert!(state.repo_prompt.is_none(), "the repository is not the problem here");
+    }
+
+    #[test]
+    fn the_repo_prompt_is_inert_to_clicks_and_closes_on_esc() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.open_repo_prompt();
+        assert!(state.repo_prompt.is_some());
+        state.handle_mouse(MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left), 40, 12);
+        assert!(state.repo_prompt.is_some(), "a click outside must not close the text prompt");
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(state.repo_prompt.is_none(), "Esc closes it, like every other window");
     }
 }

@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
 """Mock of the github releases api, for manually testing the silv self-update flow.
 
-Answers the two routes the updater uses:
-  GET /repos/{owner}/{repo}/releases  -> a github-shaped release listing (json)
-  GET /files/{asset}                  -> the asset bytes (the "new binary")
+Answers the routes the updater uses:
+  GET /repos/{owner}/{repo}/releases            -> a github-shaped release listing (json)
+  GET /repos/{owner}/{repo}/releases/tags/{tag} -> one release object (the pinned path)
+  GET /files/{asset}                            -> the asset bytes (the "new binary")
 
 Point silv at it with --repo-url:
 
   python scripts/mock-update-api.py --port 8080
   silv update --check --repo-url http://127.0.0.1:8080/testowner/testrepo
+
+Pass --prerelease 9.9.10-rc.1 to publish a release candidate above the stable
+release: silv must offer the stable one (and install it), never the rc.
 
 The asset defaults to target/debug/silv[.exe] so that a manual self-update lands
 on a runnable binary. See docs/manual-update-test.md for the full walkthrough.
@@ -57,8 +61,17 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         server = self.server
         releases = f"/repos/{REPO_OWNER}/{REPO_NAME}/releases"
+        tag_route = f"{releases}/tags/"
         if path == releases:
             self.send(200, json.dumps(server.listing).encode(), "application/json")
+        elif path.startswith(tag_route):
+            tag = path.removeprefix(tag_route)
+            release = next((r for r in server.listing if r["tag_name"] == tag), None)
+            if release is None:
+                self.send(404, b'{"message":"Not Found"}', "application/json")
+            else:
+                # The tag route answers with one release object, not a list.
+                self.send(200, json.dumps(release).encode(), "application/json")
         elif path.startswith("/files/"):
             name = path.removeprefix("/files/")
             if name in server.assets:
@@ -95,7 +108,17 @@ def build_listing(port, versions, body, triple, exe_suffix):
 def body_note(payload, version):
     if version.endswith(".1"):
         return "- mock release: the changelog button shows every release newer than you"
+    if "-" in version:
+        return "- mock prerelease: silv must not offer it to a stable install"
     return "- mock release: click the update button on the bottom line to install it"
+
+
+def version_key(version):
+    """Sortable key for a version string, prerelease-aware (1.2.3-rc.1 > 1.2.3 is
+    what the mock publishes on purpose: the updater has to filter it out)."""
+    core, _, pre = version.partition("-")
+    numbers = [int(part) for part in core.split(".") if part.isdigit()]
+    return (numbers, pre)
 
 
 def main():
@@ -103,6 +126,11 @@ def main():
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument("--version", default="9.9.9", help="newest mocked release version")
     parser.add_argument("--extra-version", default="0.4.0", help="an older mocked release, for the changelog")
+    parser.add_argument(
+        "--prerelease",
+        default=None,
+        help="a prerelease version above the newest stable one, e.g. 9.9.10-rc.1 (silv must skip it)",
+    )
     parser.add_argument("--asset", help="file served as the new binary (default: target/debug/silv)")
     parser.add_argument("--triple", default=None, help="target triple of the asset name")
     parser.add_argument("--host", default="127.0.0.1")
@@ -118,7 +146,10 @@ def main():
         print(f"cannot read the asset {asset_path!r}: {error}", file=sys.stderr)
         raise SystemExit(2)
 
-    versions = sorted({args.version, args.extra_version}, key=lambda v: [int(p) for p in v.split(".")], reverse=True)
+    versions = {args.version, args.extra_version}
+    if args.prerelease:
+        versions.add(args.prerelease)
+    versions = sorted(versions, key=version_key, reverse=True)
     listing, assets = build_listing(args.port, versions, payload, triple, exe_suffix)
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)

@@ -9,7 +9,7 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 28] = [
+const LINES: [&str; 29] = [
     "SILV - simple interactive log viewer",
     "",
     "Layout: search bar, filter chips, field header, rows, prompt line, status. The top stays visible",
@@ -29,7 +29,8 @@ const LINES: [&str; 28] = [
     "  Header       Space = drag columns    drag mode: Left/Right reorder, Enter/click = sort",
     "  Space (row)  pick value, Enter =    filter by that value (asks the operator); Esc leaves the mode",
     "  Mouse        click row = detail, click header = drag mode, wheel = scroll (PgUp/PgDn too)",
-    "  u            update repo url (forks, moved repos); update line: click = update, changelog = notes",
+    "  u            update repo url (forks, moved repos); Esc closes the pop-up",
+    "  Update line  Tab reaches it, Left/Right choose update / changelog, Enter presses it (clicks work)",
     "  ?            this help               q, Ctrl-C    quit",
     "  Layout       keys map to QWERTY positions (Russian works), text entry keeps your characters",
     "",

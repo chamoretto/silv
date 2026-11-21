@@ -32,12 +32,12 @@ pub fn run() -> miette::Result<()> {
     let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
     config.validate().context("failed to start interactive mode")?;
 
-    if let Some(Command::Update { check, repo_url }) = &cli.command {
+    if let Some(Command::Update { check, repo_url, force }) = &cli.command {
         let repo = repo_url
             .clone()
             .or_else(|| config.update_repo.clone())
             .unwrap_or_else(RepoRef::default_repo);
-        return update::run_cli(*check, &repo).context("silv update failed");
+        return update::run_cli(*check, *force, &repo).context("silv update failed");
     }
 
     if config.key_map_show {

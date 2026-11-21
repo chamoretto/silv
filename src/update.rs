@@ -6,6 +6,8 @@
 //! self-replace and tempfile crates, internal dependencies of self_update).
 
 use std::fmt::Display;
+use std::path::Path;
+use std::path::PathBuf;
 use std::str::FromStr;
 use std::time::Duration;
 
@@ -59,6 +61,8 @@ impl Display for RepoRef {
 /// Parses `https://github.com/owner/repo`, `git@github.com:owner/repo.git`
 /// or the bare `owner/repo` form. A url on any other host (a local test server,
 /// a GitHub Enterprise api) keeps its origin, with the path prefix, as the api base.
+/// The ssh forms carry no api origin: `git@host:owner/repo` on a host that is not
+/// github.com is read as `owner/repo` on api.github.com (the release api is https).
 impl FromStr for RepoRef {
     type Err = String;
 
@@ -138,6 +142,42 @@ pub const fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
+/// The cargo install directory inside a cargo home: `cargo install` puts binaries in
+/// `<cargo home>/bin` and tracks their versions in its install list.
+/// `CARGO_HOME` wins over the home directory, like cargo itself.
+fn cargo_bin_dir(cargo_home_env: Option<&std::ffi::OsStr>, home_env: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    let home = match cargo_home_env {
+        Some(cargo_home) => PathBuf::from(cargo_home),
+        None => PathBuf::from(home_env?).join(".cargo"),
+    };
+    Some(home.join("bin"))
+}
+
+/// True when the directory of the running binary is the cargo install dir.
+fn is_cargo_install_dir(exe_dir: &Path, cargo_bin: &Path) -> bool {
+    exe_dir == cargo_bin
+}
+
+/// True when the running binary is a `cargo install` artifact (it sits in the cargo
+/// bin dir): cargo tracks its version, so a self-update desyncs cargo's bookkeeping
+/// and the update line points at cargo instead of the self-update.
+pub fn cargo_managed_install() -> bool {
+    let exe = std::env::current_exe().ok();
+    let exe_dir = exe.as_deref().and_then(|exe| exe.parent()).and_then(canonical);
+    let cargo_home = std::env::var_os("CARGO_HOME");
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    let cargo_bin = cargo_bin_dir(cargo_home.as_deref(), home.as_deref()).and_then(|dir| canonical(&dir));
+    match (exe_dir, cargo_bin) {
+        (Some(exe_dir), Some(cargo_bin)) => is_cargo_install_dir(&exe_dir, &cargo_bin),
+        _ => false,
+    }
+}
+
+/// Canonicalizes for path comparison; a path that does not exist cannot match.
+fn canonical(path: &Path) -> Option<PathBuf> {
+    std::fs::canonicalize(path).ok()
+}
+
 /// Release notes of one release, newest-first in the delta list.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReleaseNote {
@@ -168,13 +208,18 @@ pub enum PerformOutcome {
         reason: String,
         /// Suggest pointing at another repository url (network, api and 404 failures).
         suggest_repo_url: bool,
+        /// The failure is a permission denial on the binary's directory: suggest `sudo silv update`.
+        suggest_sudo: bool,
     },
 }
 
 /// Event flowing from a background worker thread to the TUI.
+/// `Checked` carries the check generation that was active when the worker started;
+/// the TUI drops events from a superseded generation (a repository url was submitted
+/// while the old check was in flight).
 #[derive(Clone, Debug)]
 pub enum UpdateEvent {
-    Checked(UpdateOutcome),
+    Checked(u64, UpdateOutcome),
     Performed(PerformOutcome),
 }
 
@@ -205,14 +250,13 @@ impl UpdateTarget {
         if self.repo.api_base.is_some() {
             builder.api_base_url(self.repo.api_base());
         }
-        if let Some(triple) = target_triple() {
-            builder.target(triple);
-        }
         builder
     }
 
     /// Fetches the releases newer than the current version: drives the update line
     /// and the changelog overlay (the release bodies are the delta).
+    /// Semver prereleases are filtered out: a stable release train may publish
+    /// release candidates, and silv users must not be pulled onto one by the update line.
     pub fn check(&self) -> UpdateOutcome {
         let Some(triple) = target_triple() else {
             return UpdateOutcome::Unreachable {
@@ -234,6 +278,7 @@ impl UpdateTarget {
         let notes: Vec<ReleaseNote> = releases
             .all()
             .iter()
+            .filter(|release| !is_prerelease(release.version()))
             .map(|release| ReleaseNote {
                 version: release.version().to_owned(),
                 published: release.date().split('T').next().unwrap_or_default().to_owned(),
@@ -249,8 +294,12 @@ impl UpdateTarget {
         }
     }
 
-    /// Downloads the newest release and replaces the running binary in place.
-    pub fn perform(&self) -> PerformOutcome {
+    /// Downloads a release and replaces the running binary in place.
+    /// `version` pins that exact release (the one the check presented, tagged
+    /// `v<version>` by `release.yml`); `None` falls back to the newest release overall.
+    /// A repository that tags differently answers 404 for the pinned tag: then the
+    /// unpinned path runs, so forks with their own tag scheme still update.
+    pub fn perform(&self, version: Option<&str>) -> PerformOutcome {
         let Some(triple) = target_triple() else {
             return PerformOutcome::Failed {
                 reason: format!(
@@ -259,31 +308,58 @@ impl UpdateTarget {
                     std::env::consts::OS
                 ),
                 suggest_repo_url: false,
+                suggest_sudo: false,
             };
         };
-        let update = self
-            .builder(Duration::from_secs(120))
-            .target(triple)
-            .no_confirm(true)
-            .show_output(false)
-            .update_strategy(self_update::update::UpdateStrategy::Latest)
-            .build();
-        let update = match update {
-            Ok(update) => update,
-            Err(cause) => return perform_failure(&cause),
-        };
-        let status = match update.update() {
-            Ok(status) => status,
-            Err(cause) => return perform_failure(&cause),
-        };
-        if status.is_up_to_date() {
-            PerformOutcome::UpToDate
-        } else {
-            PerformOutcome::Updated {
-                version: status.version().to_owned(),
-            }
+        let pinned = self.try_perform(triple, version);
+        match pinned {
+            Ok(outcome) => outcome,
+            Err(cause) => {
+                let pinned_tag_missing = matches!(cause, self_update::Error::NotFound { .. });
+                if version.is_some() && pinned_tag_missing {
+                    match self.try_perform(triple, None) {
+                        Ok(outcome) => outcome,
+                        Err(fallback) => perform_failure(&fallback),
+                    }
+                } else {
+                    perform_failure(&cause)
+                }
+            },
         }
     }
+
+    fn try_perform(&self, triple: &str, version: Option<&str>) -> Result<PerformOutcome, self_update::Error> {
+        let mut builder = self.builder(Duration::from_secs(120));
+        builder.target(triple).no_confirm(true).show_output(false);
+        match version {
+            Some(version) => {
+                builder.release_tag(format!("v{version}"));
+            },
+            None => {
+                builder.update_strategy(self_update::update::UpdateStrategy::Latest);
+            },
+        }
+        let status = builder.build()?.update()?;
+        if status.is_up_to_date() {
+            Ok(PerformOutcome::UpToDate)
+        } else {
+            Ok(PerformOutcome::Updated {
+                version: status.version().to_owned(),
+            })
+        }
+    }
+}
+
+/// True when a release version is a semver prerelease (`1.2.0-rc.1`), or does not
+/// parse as semver at all; such releases never drive the update line.
+fn is_prerelease(version: &str) -> bool {
+    semver::Version::parse(version).map_or(true, |version| !version.pre.is_empty())
+}
+
+/// True when the io error is a permission denial: the binary's directory is not
+/// writable by this user (a root-owned system install).
+fn is_permission_error(cause: &std::io::Error) -> bool {
+    cause.kind() == std::io::ErrorKind::PermissionDenied
 }
 
 fn unreachable_outcome(repo: &RepoRef, cause: &self_update::Error) -> UpdateOutcome {
@@ -295,9 +371,25 @@ fn unreachable_outcome(repo: &RepoRef, cause: &self_update::Error) -> UpdateOutc
 
 fn perform_failure(cause: &self_update::Error) -> PerformOutcome {
     let reason = describe(cause);
+    let suggest_sudo = chain_permission_denied(cause);
     PerformOutcome::Failed {
-        suggest_repo_url: !reason.starts_with("no release asset"),
         reason,
+        suggest_sudo,
+        // A missing asset for this target, or a write permission denial, is not a
+        // repository problem: pointing at another url would not help.
+        suggest_repo_url: !suggest_sudo && !matches!(cause, self_update::Error::NoReleaseFound { target: Some(_), .. }),
+    }
+}
+
+/// Walks the `std::error::Error` source chain for a `PermissionDenied` io error
+/// (self_update nests the io error of the failed replace, ureq nests its own).
+fn chain_permission_denied(cause: &(dyn std::error::Error + 'static)) -> bool {
+    if let Some(io) = cause.downcast_ref::<std::io::Error>() {
+        return is_permission_error(io);
+    }
+    match std::error::Error::source(cause) {
+        Some(source) => chain_permission_denied(source),
+        None => false,
     }
 }
 
@@ -334,8 +426,15 @@ fn describe(cause: &self_update::Error) -> String {
     }
 }
 
-/// Runs the `silv update` subcommand.
-pub fn run_cli(check: bool, repo: &RepoRef) -> Result<()> {
+/// The cargo command that updates a `cargo install` binary in place, keeping cargo's
+/// install list in sync.
+fn cargo_install_command(repo: &RepoRef) -> String {
+    format!("cargo install --git {} --force", repo.url())
+}
+
+/// Runs the `silv update` subcommand. `force` overrides the cargo-install refusal.
+pub fn run_cli(check: bool, force: bool, repo: &RepoRef) -> Result<()> {
+    let cargo_managed = cargo_managed_install();
     let target = UpdateTarget::new(repo.clone());
     eprintln!("silv: checking releases at {repo} (running v{})", target.current);
     let outcome = target.check();
@@ -358,12 +457,46 @@ pub fn run_cli(check: bool, repo: &RepoRef) -> Result<()> {
                 eprintln!("changelog, the releases between silv {} and {latest}:", target.current);
                 print_notes(&notes);
                 eprintln!();
-                eprintln!("run `silv update` to install it");
-                return Ok(());
+                if cargo_managed {
+                    // cargo tracks this binary's version: a self-update desyncs its install list.
+                    eprintln!("this binary is a cargo install, update it with: `{}`", cargo_install_command(repo));
+                    eprintln!("(`silv update` works too, it only leaves cargo's install list behind)");
+                } else {
+                    eprintln!("run `silv update` to install it");
+                }
+                // grep-like semantics: exit 1 signals "an update was found", so scripts
+                // can branch on the exit code; 0 means up to date.
+                return Err(SilvError::Update {
+                    message: format!("update available: silv {} -> {latest}", target.current),
+                    help: "run `silv update` to install it; --check exits 1 when an update is available, 0 when up to date"
+                        .to_string(),
+                }
+                .into());
+            }
+            if cargo_managed && !force {
+                // Replacing a cargo-tracked binary on its own is a known breakage of
+                // cargo's bookkeeping; refuse it, the cargo command is the clean path.
+                print_notes(&notes);
+                return Err(SilvError::Update {
+                    message: "this binary is a cargo install, refusing to replace it".to_string(),
+                    help: format!(
+                        "update it with `{}`: cargo tracks this binary's version, a self-update leaves that \
+                         install list behind; pass --force to replace it anyway (`{}` re-syncs cargo)",
+                        cargo_install_command(repo),
+                        cargo_install_command(repo)
+                    ),
+                }
+                .into());
+            }
+            if cargo_managed {
+                eprintln!(
+                    "note: --force on a cargo install: cargo's install list keeps the old version, `{}` re-syncs it",
+                    cargo_install_command(repo)
+                );
             }
             eprintln!("updating silv {} -> {} ...", target.current, latest);
             print_notes(&notes);
-            match target.perform() {
+            match target.perform(Some(&latest)) {
                 PerformOutcome::Updated { version } => {
                     eprintln!("silv updated to {version}; restart silv to use it");
                     Ok(())
@@ -375,9 +508,14 @@ pub fn run_cli(check: bool, repo: &RepoRef) -> Result<()> {
                 PerformOutcome::Failed {
                     reason,
                     suggest_repo_url,
+                    suggest_sudo,
                 } => Err(SilvError::Update {
                     message: format!("update failed: {reason}"),
-                    help: if suggest_repo_url {
+                    help: if suggest_sudo {
+                        "the directory containing this binary is not writable: system installs need \
+                         `sudo silv update` (with sudo -E to pass GITHUB_TOKEN)"
+                            .to_owned()
+                    } else if suggest_repo_url {
                         "if silv moved, was renamed, or you track a fork, retry with: \
                          `silv update --repo-url https://github.com/owner/repo`, set GITHUB_TOKEN to avoid api rate limits"
                             .to_owned()
@@ -487,6 +625,37 @@ mod tests {
     }
 
     #[test]
+    fn cargo_bin_dir_follows_the_cargo_home_rules() {
+        // CARGO_HOME wins over the home directory, like cargo itself.
+        assert_eq!(
+            cargo_bin_dir(Some(std::ffi::OsStr::new("/opt/cargo")), Some(std::ffi::OsStr::new("/home/x"))),
+            Some(PathBuf::from("/opt/cargo/bin"))
+        );
+        assert_eq!(
+            cargo_bin_dir(None, Some(std::ffi::OsStr::new("/home/x"))),
+            Some(PathBuf::from("/home/x/.cargo/bin"))
+        );
+        assert_eq!(cargo_bin_dir(None, None), None, "no home, no cargo bin dir");
+    }
+
+    #[test]
+    fn cargo_install_dir_matches_only_the_cargo_bin_dir() {
+        let cargo_bin = PathBuf::from("/home/x/.cargo/bin");
+        assert!(is_cargo_install_dir(Path::new("/home/x/.cargo/bin"), &cargo_bin));
+        assert!(!is_cargo_install_dir(Path::new("/home/x/.local/bin"), &cargo_bin), "a user bin dir is self-managed");
+        assert!(
+            !is_cargo_install_dir(Path::new("/home/x/project/target/debug"), &cargo_bin),
+            "a dev build is self-managed"
+        );
+    }
+
+    #[test]
+    fn the_test_binary_is_not_a_cargo_install() {
+        // The test binary runs from the cargo target dir, never from the cargo bin dir.
+        assert!(!cargo_managed_install(), "cargo test runs from target/, not from ~/.cargo/bin");
+    }
+
+    #[test]
     fn describe_maps_api_errors_to_reasons() {
         let not_found = self_update::Error::http_status_error(404, "u");
         assert!(describe(&not_found).contains("404"));
@@ -496,5 +665,61 @@ mod tests {
         assert!(describe(&no_asset).contains("x86_64-pc-windows-msvc"));
         let no_release = self_update::Error::no_release_found();
         assert!(describe(&no_release).contains("publishes no releases"));
+    }
+
+    #[test]
+    fn prerelease_filter_follows_semver() {
+        assert!(is_prerelease("1.2.0-rc.1"));
+        assert!(is_prerelease("0.3.0-alpha.2026-11-01"));
+        assert!(is_prerelease("not-a-version"));
+        assert!(!is_prerelease("1.2.0"));
+        assert!(!is_prerelease("0.3.0"));
+    }
+
+    #[test]
+    fn perform_failure_flags_a_permission_denied_chain() {
+        // self_update nests the io error of the failed replace under its own error.
+        let denied = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "read-only dir");
+        let wrapped = self_update::Error::Io(denied);
+        let outcome = perform_failure(&wrapped);
+        match outcome {
+            PerformOutcome::Failed {
+                suggest_sudo,
+                suggest_repo_url,
+                reason,
+            } => {
+                assert!(suggest_sudo, "a nested PermissionDenied suggests sudo: {reason}");
+                assert!(!suggest_repo_url, "a permission failure is not a repo problem");
+            },
+            other => panic!("expected a failure, got {other:?}"),
+        }
+        let plain = std::io::Error::new(std::io::ErrorKind::TimedOut, "network");
+        match perform_failure(&self_update::Error::Io(plain)) {
+            PerformOutcome::Failed {
+                suggest_sudo,
+                suggest_repo_url,
+                ..
+            } => {
+                assert!(!suggest_sudo);
+                assert!(suggest_repo_url, "a network failure may be a moved repo");
+            },
+            other => panic!("expected a failure, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn perform_failure_does_not_suggest_a_repo_for_a_missing_asset() {
+        let missing = self_update::Error::no_release_found_for_target("x86_64-pc-windows-msvc");
+        match perform_failure(&missing) {
+            PerformOutcome::Failed {
+                suggest_repo_url,
+                suggest_sudo,
+                reason,
+            } => {
+                assert!(!suggest_repo_url, "the repo is fine, the asset for this target is not: {reason}");
+                assert!(!suggest_sudo);
+            },
+            other => panic!("expected a failure, got {other:?}"),
+        }
     }
 }

@@ -773,17 +773,41 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let right = " changelog ".to_owned();
     let width = usize::from(area.width);
     let right_w = crate::render::text::width(&right).min(width);
+    // A cargo install is updated by cargo, not by the self-update (see `cargo_managed_install`).
+    let action = if state.update_cargo_managed {
+        "update using cargo"
+    } else {
+        "click to update"
+    };
     let text = format!(
-        "update available: {current} -> {latest} (click to update, to disable checks use \"--no-update\" or \"SILV_NO_UPDATE=true\") "
+        "update available: {current} -> {latest} ({action}, to disable checks use \"--no-update\" or \"SILV_NO_UPDATE=true\") "
     );
     // The hint stays in the yellow button even when squeezed: it is cut with the ellipsis
     // so the user can see the text goes on.
     let left = crate::render::text::truncate(&text, width.saturating_sub(right_w).max(1));
+    // The focused button (Tab to the line, Left/Right to choose) is the brighter variant.
+    let focused_update = state.focus == Focus::UpdateLine && state.update_focus_index == 0;
+    let focused_changelog = state.focus == Focus::UpdateLine && state.update_focus_index == 1;
     let left_style = Style::default()
         .fg(Color::Black)
-        .bg(Color::Yellow)
+        .bg(if focused_update {
+            Color::LightYellow
+        } else {
+            Color::Yellow
+        })
         .add_modifier(Modifier::BOLD);
-    let right_style = Style::default().fg(Color::Black).bg(Color::LightBlue);
+    let right_style = Style::default()
+        .fg(Color::Black)
+        .bg(if focused_changelog {
+            Color::White
+        } else {
+            Color::LightBlue
+        })
+        .add_modifier(if focused_changelog {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
     let left_w = crate::render::text::width(&left).min(width);
     let right_x = width.saturating_sub(right_w);
     state.update_btn = Rect {
