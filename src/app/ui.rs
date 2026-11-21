@@ -865,9 +865,31 @@ fn changelog_lines(notes: &[crate::update::ReleaseNote], width: usize) -> Vec<Li
     lines
 }
 
+/// Cached changelog rendering: rebuilds the wrapped lines only when the overlay
+/// opens or the width changes; clamps scroll so the last page lands flush.
+fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
+    let Some(changelog) = state.changelog.as_mut() else {
+        return 0;
+    };
+    if changelog.lines.is_empty() || changelog.width != width {
+        let notes = state.update_available.clone().unwrap_or_default();
+        changelog.lines = changelog_lines(&notes, width);
+        changelog.width = width;
+        changelog.content_height = changelog.lines.len();
+    }
+    changelog.page = page;
+    let max = changelog.content_height.saturating_sub(page.max(1));
+    changelog.scroll = changelog.scroll.min(max);
+    changelog.scroll
+}
+
 fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let notes = state.update_available.clone().unwrap_or_default();
-    let latest = notes.first().map(|note| note.version.clone()).unwrap_or_default();
+    let latest = state
+        .update_available
+        .as_ref()
+        .and_then(|notes| notes.first())
+        .map(|note| note.version.clone())
+        .unwrap_or_default();
     let current = crate::update::current_version();
     let block = Block::bordered()
         .title(format!(" changes: silv {current} -> {latest} "))
@@ -877,15 +899,8 @@ fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
     frame.render_widget(Clear, area);
     frame.render_widget(block, area);
 
-    let lines = changelog_lines(&notes, usize::from(inner.width));
-    let scroll = if let Some(changelog) = state.changelog.as_mut() {
-        changelog.content_height = lines.len();
-        changelog.page = usize::from(inner.height);
-        changelog.scroll = changelog.scroll.min(lines.len().saturating_sub(1));
-        changelog.scroll
-    } else {
-        0
-    };
+    let scroll = changelog_scroll(state, usize::from(inner.width), usize::from(inner.height));
+    let lines = state.changelog.as_ref().map(|c| c.lines.clone()).unwrap_or_default();
     let paragraph = Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
     frame.render_widget(paragraph, inner);
 }

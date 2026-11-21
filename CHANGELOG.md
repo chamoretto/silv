@@ -31,6 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(update)* Prove self-replace with a distinct served binary, add the manual proof walkthrough
 - *(update)* Cover prereleases, pinned tags, exit codes, cargo refusal
 
+### Performance
+
+- *(app)* Cache the changelog overlay rendering between frames
+
 ### Styling
 
 - Apply rustfmt to the v0.2.0 code

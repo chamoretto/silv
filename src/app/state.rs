@@ -318,12 +318,16 @@ pub struct AppState {
 }
 
 /// The changelog overlay: release notes between the running and the newest version.
-/// `content_height`/`page` are recorded while drawing so keys and wheel can clamp scroll.
+/// `content_height`/`page` are recorded while drawing so keys and wheel can clamp scroll;
+/// `lines` caches the wrapped notes for `width` and rebuilds only when the width changes.
 #[derive(Clone, Debug, Default)]
 pub struct ChangelogState {
     pub scroll: usize,
     pub content_height: usize,
     pub page: usize,
+    /// Cached wrapped rendering of the notes; `width` is the width it was wrapped to.
+    pub width: usize,
+    pub lines: Vec<Line<'static>>,
 }
 
 /// The repository url pop-up: shown when the release repo is unreachable, opened with `u`.
