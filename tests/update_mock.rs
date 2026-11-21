@@ -11,7 +11,6 @@
 use std::io::Read;
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::Path;
 use std::path::PathBuf;
 use std::process::Command;
 use std::process::Output;
@@ -27,8 +26,18 @@ struct MockApi {
 
 impl MockApi {
     /// The server binds first, then `build(port)` produces the listing response, so the
-    /// asset download url inside the listing can carry the real port.
+    /// asset download url inside the listing can carry the real port. `/files/<asset>`
+    /// answers with the fixed default payload.
     fn start(build: impl FnOnce(u16) -> (u16, Vec<u8>)) -> MockApi {
+        Self::start_with(build, ASSET_PAYLOAD.to_vec())
+    }
+
+    /// Like `start`, but `/files/<asset>` answers with `asset` (every /files/ route shares
+    /// it). Use a binary distinct from the one under test when asserting on the replace.
+    fn start_with<F>(build: F, asset: Vec<u8>) -> MockApi
+    where
+        F: FnOnce(u16) -> (u16, Vec<u8>),
+    {
         let listener = TcpListener::bind("127.0.0.1:0").expect("binds a free port");
         let port = listener.local_addr().expect("local addr").port();
         let (listing_status, listing_body) = build(port);
@@ -47,7 +56,7 @@ impl MockApi {
                 let (status, body) = if target == format!("/repos/{OWNER}/{REPO}/releases") {
                     (listing_status, listing_body.clone())
                 } else if target.starts_with("/files/") {
-                    (200, ASSET_PAYLOAD.to_vec())
+                    (200, asset.clone())
                 } else {
                     (404, br#"{"message":"Not Found"}"#.to_vec())
                 };
@@ -153,7 +162,13 @@ fn connection_refused_is_reported_as_unreachable() {
 
 #[test]
 fn update_performs_self_replace_on_a_temp_copy() {
-    let api = MockApi::start(|port| listing(port, "9.9.9", "fresh"));
+    // Serve a binary distinct from the one under test, otherwise "copy == asset" is
+    // trivially true (the copy is a copy of the same artifact). Appended trailing bytes
+    // keep a PE/ELF runnable, so the replaced copy can also be executed below.
+    let stock = std::fs::read(env!("CARGO_BIN_EXE_silv")).expect("read the binary under test");
+    let mut asset = stock.clone();
+    asset.extend_from_slice(b"-MOCK-RELEASE-ASSET-MARKER");
+    let api = MockApi::start_with(|port| listing(port, "9.9.9", "fresh"), asset.clone());
 
     let dir: PathBuf = std::env::temp_dir().join(format!(
         "silv-update-test-{}-{}",
@@ -173,10 +188,17 @@ fn update_performs_self_replace_on_a_temp_copy() {
         .expect("runs the copied silv");
     let text = combined(&output);
     let replaced = std::fs::read(&exe).unwrap_or_default();
+
+    let runs = Command::new(&exe).arg("--version").output().expect("the replaced copy runs");
+    let version_out = String::from_utf8_lossy(&runs.stdout).into_owned();
     let _ = std::fs::remove_dir_all(&dir);
 
     assert!(output.status.success(), "{text}");
     assert!(text.contains("updated to 9.9.9"), "{text}");
-    assert_eq!(replaced, ASSET_PAYLOAD, "the copy must be replaced by the mock asset");
-    assert!(Path::new(env!("CARGO_BIN_EXE_silv")).is_file(), "cargo's artifact must stay untouched");
+    assert_eq!(replaced, asset, "the copy must become exactly the served asset");
+    assert_ne!(replaced, stock, "the served asset differs from the runner, so the replace changed the binary");
+    assert!(runs.status.success(), "the replaced copy must be executable");
+    assert!(version_out.contains("0.3.0"), "the replaced copy runs the real program: {version_out}");
+    let now = std::fs::read(env!("CARGO_BIN_EXE_silv")).unwrap_or_default();
+    assert_eq!(now, stock, "cargo's artifact must stay untouched");
 }

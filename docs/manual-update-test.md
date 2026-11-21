@@ -55,6 +55,39 @@ served asset. The served asset is your current debug build, so the replaced copy
 `0.3.0` - that is expected, the version string comes from the binary you served, not from the
 release tag.
 
+## 3a. Prove the replacement is functional, not just byte equality
+
+With the default asset (the current build) a replace only changes the hash. To watch the
+program itself change, build a visually distinct "new" binary, serve it, and update a stock
+copy from it:
+
+```powershell
+# 1. Build the "new" release: uppercase the first line of --help (the LONG_ABOUT constant
+#    in src/cli.rs, "Reads JSON Lines..." -> "READS JSON Lines..."), keep it, revert, rebuild:
+cargo build
+Copy-Item target\debug\silv.exe .ai\tmp\silv-new.exe
+git checkout -- src/cli.rs
+cargo build                       # stock "old" binary again
+
+# 2. Serve the "new" one as the release asset (mock terminal, port 8080):
+python scripts/mock-update-api.py --port 8080 --asset .ai\tmp\silv-new.exe
+
+# 3. Update a stock copy from it:
+Copy-Item target\debug\silv.exe $env:TEMP\silv-e2e.exe
+& $env:TEMP\silv-e2e.exe --help | Select-Object -First 1   # Reads JSON Lines ...
+& $env:TEMP\silv-e2e.exe update --repo-url http://127.0.0.1:8080/testowner/testrepo
+& $env:TEMP\silv-e2e.exe --help | Select-Object -First 1   # READS JSON Lines ...
+(Get-FileHash $env:TEMP\silv-e2e.exe).Hash                 # equals .ai\tmp\silv-new.exe
+Remove-Item $env:TEMP\silv-e2e.exe, .ai\tmp\silv-new.exe
+```
+
+Expected: the first `--help` line flips `Reads` -> `READS` after the update. The already
+running old copy keeps behaving like the old binary while it works; only the file on disk is
+swapped (self-replace replaces the path, not the running image). The automated equivalent is
+`tests/update_mock.rs::update_performs_self_replace_on_a_temp_copy`: it serves
+`<the binary under test> + marker bytes`, asserts the copy equals the served asset (not the
+runner), and executes the replaced copy - trailing data keeps a PE/ELF executable.
+
 ## 4. TUI: the update line and the changelog
 
 ```powershell

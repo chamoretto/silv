@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(update)* Manual update-flow testing against a localhost mock api
 
+### Testing
+
+- *(update)* Prove self-replace with a distinct served binary, add the manual proof walkthrough
+
 ### Styling
 
 - Apply rustfmt to the v0.2.0 code
