@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Satisfy rust-clippy 1.100 lints
 
+### Documentation
+
+- *(update)* Manual update-flow testing against a localhost mock api
+
 ### Styling
 
 - Apply rustfmt to the v0.2.0 code

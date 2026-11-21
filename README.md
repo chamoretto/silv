@@ -314,6 +314,9 @@ from the CLI via `--repo-url`. `u` opens that pop-up at any time.
   line and the changelog button completely.
 - `--repo-url <url>` also works in interactive mode to point the check at a fork from the start.
 
+`scripts/mock-update-api.py` mocks the github api on localhost for testing all of this by hand:
+see `docs/manual-update-test.md`.
+
 ## Development
 
 ```sh
