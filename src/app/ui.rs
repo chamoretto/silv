@@ -822,6 +822,11 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
         width: u16::try_from(right_w).unwrap_or(area.width),
         height: 1,
     };
+    if right_x < left_w {
+        // A squeezed line: the changelog button wins the overlap, the update button
+        // gets no click rect (a click there means the changelog, drawing stays as is).
+        state.update_btn = Rect::default();
+    }
     let fill = " ".repeat(width.saturating_sub(left_w).saturating_sub(right_w));
     let line = Line::from(vec![
         Span::styled(left, left_style),
@@ -865,16 +870,20 @@ fn changelog_lines(notes: &[crate::update::ReleaseNote], width: usize) -> Vec<Li
     lines
 }
 
-/// Cached changelog rendering: rebuilds the wrapped lines only when the overlay
-/// opens or the width changes; clamps scroll so the last page lands flush.
+/// Cached changelog rendering: rebuilds the wrapped lines when the overlay opens,
+/// the newest version changes, or the width changes; clamps scroll so the last page
+/// lands flush. The version stamp makes a stale cache impossible by construction
+/// (see the `ChangelogState` notes).
 fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
+    let latest = state.update_latest().unwrap_or_default().to_owned();
     let Some(changelog) = state.changelog.as_mut() else {
         return 0;
     };
-    if changelog.lines.is_empty() || changelog.width != width {
+    if changelog.lines.is_empty() || changelog.width != width || changelog.version != latest {
         let notes = state.update_available.clone().unwrap_or_default();
         changelog.lines = changelog_lines(&notes, width);
         changelog.width = width;
+        changelog.version = latest;
         changelog.content_height = changelog.lines.len();
     }
     changelog.page = page;
@@ -893,7 +902,7 @@ fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let current = crate::update::current_version();
     let block = Block::bordered()
         .title(format!(" changes: silv {current} -> {latest} "))
-        .title_bottom(" j/k scroll, g/G ends, Esc closes ")
+        .title_bottom(" j/k scroll, g/G ends, q/Esc closes ")
         .border_style(Style::default().fg(Color::DarkGray));
     let inner = block.inner(area);
     frame.render_widget(Clear, area);

@@ -9,11 +9,12 @@ use ratatui::text::Span;
 use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
 
-const LINES: [&str; 29] = [
+const LINES: [&str; 30] = [
     "SILV - simple interactive log viewer",
     "",
-    "Layout: search bar, filter chips, field header, rows, prompt line, status. The top stays visible",
-    "while scrolling. The prompt line shows the control keys of the mode you are in.",
+    "Layout: search bar, filter chips, field header, rows, prompt line, status; when an update is",
+    "available, the update line is the very bottom row. The top stays visible while scrolling,",
+    "and the prompt line shows the control keys of the mode you are in.",
     "Rows show columns when fields are selected, otherwise text in the format default (kv for JSON Lines,",
     "the source line for plain logs).",
     "",

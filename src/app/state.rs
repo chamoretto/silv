@@ -292,13 +292,14 @@ pub struct AppState {
     /// Newest releases newer than the running version, newest first; the button appears
     /// on the update line when this is non-empty.
     pub update_available: Option<Vec<ReleaseNote>>,
-    /// A background release check is in flight.
-    pub update_checking: bool,
     /// Bumped on every spawned check; events from an older generation are stale
     /// (a repository url was submitted while the old check was in flight) and get dropped.
     update_check_generation: u64,
     /// The update download/replace is in flight.
     pub updating: bool,
+    /// A quit was refused once because an update is in flight; the second press quits.
+    /// Quitting mid-replace can truncate the binary (Windows replaces the file in place).
+    quit_confirm_pending: bool,
     /// Open changelog overlay (delta between the running and the newest version).
     pub changelog: Option<ChangelogState>,
     /// Open pop-up asking for a repository url (unreachable repo, forks).
@@ -319,14 +320,19 @@ pub struct AppState {
 
 /// The changelog overlay: release notes between the running and the newest version.
 /// `content_height`/`page` are recorded while drawing so keys and wheel can clamp scroll;
-/// `lines` caches the wrapped notes for `width` and rebuilds only when the width changes.
+/// `lines` caches the wrapped notes for `width`, and rebuilds when `width` or `version`
+/// change. The cached notes are the notes at overlay-open time: `update_available` is
+/// fixed while a modal is open (checks only drive the state between modals), so the
+/// cache can never render a note that is not on the update line.
 #[derive(Clone, Debug, Default)]
 pub struct ChangelogState {
     pub scroll: usize,
     pub content_height: usize,
     pub page: usize,
-    /// Cached wrapped rendering of the notes; `width` is the width it was wrapped to.
+    /// Cached wrapped rendering of the notes; `width` is the width it was wrapped to,
+    /// `version` the newest release it was built from.
     pub width: usize,
+    pub version: String,
     pub lines: Vec<Line<'static>>,
 }
 
@@ -391,7 +397,7 @@ impl AppState {
             filter_redo: Vec::new(),
             update_repo: config.update_repo.clone().unwrap_or_else(RepoRef::default_repo),
             update_available: None,
-            update_checking: false,
+            quit_confirm_pending: false,
             update_check_generation: 0,
             updating: false,
             changelog: None,
@@ -907,7 +913,11 @@ impl AppState {
     }
 
     /// Wheel scrolling, overlay-aware: three lines per notch in the active layer.
+    /// The repository pop-up owns the screen: wheel there is inert.
     pub fn wheel(&mut self, notches: isize) {
+        if self.repo_prompt.is_some() {
+            return;
+        }
         let delta = notches.saturating_mul(3);
         if self.changelog.is_some() {
             self.changelog_move(delta);
@@ -1188,6 +1198,14 @@ impl AppState {
     }
 
     pub fn quit(&mut self) {
+        if self.updating && !self.quit_confirm_pending {
+            // The self-replace is in flight: killing the process now can truncate the
+            // binary (Windows renames the running file, then writes the new one).
+            self.quit_confirm_pending = true;
+            self.message = Some("update: an update is in progress, press q again to quit anyway".to_owned());
+            self.dirty = true;
+            return;
+        }
         self.quit = true;
     }
 
@@ -1262,7 +1280,7 @@ impl AppState {
                 self.help = true;
                 return;
             },
-            KeyCode::Char('c') if !self.focus_is_text() => {
+            KeyCode::Char('c') if !self.focus_is_text() && self.focus != Focus::UpdateLine => {
                 self.open_picker();
                 return;
             },
@@ -1656,7 +1674,7 @@ impl AppState {
                 "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
             },
             Focus::UpdateLine => {
-                "update line: [Left]/[Right] choose update / changelog, [Enter] press it, [u] repository url, [Esc] rows"
+                "update line: [Left]/[Right] (h/l) choose update / changelog, [Enter] press it, [u] repository url, [q] quit, [Esc] rows"
             },
             Focus::Rows => concat!(
                 "rows: [Enter] detail view, [Space] select value to filter by, [j]/[k] move, [f]/[b] page, ",
@@ -1790,6 +1808,11 @@ impl AppState {
         if self.changelog.is_some() {
             return;
         }
+        // The value picker and the record detail own the screen: clicks behind them,
+        // including on the update line row, are inert.
+        if self.picker.is_some() || self.detail.is_some() {
+            return;
+        }
         if self.update_line_visible() && contains(self.areas.update, row) {
             if self.update_btn.contains(ratatui::layout::Position::new(column, row)) {
                 self.focus = Focus::UpdateLine;
@@ -1800,9 +1823,6 @@ impl AppState {
                 self.update_focus_index = 1;
                 self.open_changelog();
             }
-            return;
-        }
-        if self.picker.is_some() || self.detail.is_some() {
             return;
         }
         let areas = self.areas;
@@ -1892,7 +1912,6 @@ impl AppState {
         if self.config.no_update {
             return;
         }
-        self.update_checking = true;
         self.update_check_generation = self.update_check_generation.wrapping_add(1);
         let generation = self.update_check_generation;
         let tx = self.update_events.0.clone();
@@ -1955,22 +1974,30 @@ impl AppState {
                     // is about the old repository, drop it.
                     return;
                 }
-                self.update_checking = false;
                 match outcome {
                     UpdateOutcome::Available { notes, .. } => {
                         // No status bar message: the update line itself is the prompt,
                         // the rows line stays clean.
                         self.update_available = Some(notes);
                     },
-                    UpdateOutcome::UpToDate => {},
+                    UpdateOutcome::UpToDate => {
+                        // The running version is the newest release: clear a line a
+                        // previous check painted (a rollback of the repository's releases).
+                        self.update_available = None;
+                        self.changelog = None;
+                    },
                     UpdateOutcome::Unreachable { repo, reason } => {
                         self.message = Some(format!("update: {repo} is unreachable: {reason}"));
                         self.open_repo_prompt();
                     },
                 }
+                if self.focus == Focus::UpdateLine && !self.update_line_visible() {
+                    self.focus = Focus::Rows;
+                }
             },
             UpdateEvent::Performed(outcome) => {
                 self.updating = false;
+                self.quit_confirm_pending = false;
                 match outcome {
                     PerformOutcome::Updated { version } => {
                         self.update_available = None;
@@ -2035,9 +2062,12 @@ impl AppState {
                 self.message = Some(format!("update: checking {} ...", repo.url()));
                 self.update_repo = repo;
                 self.update_available = None;
-                self.update_checking = false;
                 self.update_check_generation = self.update_check_generation.wrapping_add(1);
                 self.close_repo_prompt();
+                // The line hid with the old notes: a focus parked on it returns to the rows.
+                if self.focus == Focus::UpdateLine && !self.update_line_visible() {
+                    self.focus = Focus::Rows;
+                }
                 self.start_update_check();
             },
             Err(reason) => {
@@ -2047,8 +2077,11 @@ impl AppState {
     }
 
     pub fn open_changelog(&mut self) {
-        if self.update_available.is_some() {
-            self.changelog = Some(ChangelogState::default());
+        if let Some(notes) = &self.update_available {
+            self.changelog = Some(ChangelogState {
+                version: notes.first().map(|note| note.version.clone()).unwrap_or_default(),
+                ..Default::default()
+            });
         }
     }
 
@@ -2848,7 +2881,7 @@ mod tests {
         assert_eq!(state.update_repo.url(), "https://github.com/you/fork");
         assert_eq!(state.update_repo.author, "you");
         assert_eq!(state.update_repo.repo, "fork");
-        assert!(!state.update_checking, "no_update suppresses the check thread");
+        assert_eq!(state.update_check_generation, 1, "the submit bumps the generation, no_update spawns no thread");
     }
 
     #[test]
@@ -2946,7 +2979,6 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         state.config.no_update = true; // suppresses the check thread
         // A startup check of the default repository is in flight (generation 1).
-        state.update_checking = true;
         state.update_check_generation = 1;
         state.repo_prompt = Some(RepoPrompt {
             message: String::new(),
@@ -2955,9 +2987,6 @@ mod tests {
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
         assert_eq!(state.update_repo.url(), "https://github.com/you/fork", "the url is applied at once");
         assert_eq!(state.update_check_generation, 2, "the submit starts a new generation");
-        // no_update suppressed the spawned check; mark a new one in flight to test
-        // that a stale answer cannot clear the flag of the running one.
-        state.update_checking = true;
         // The old check answers late, about the default repository: it must not drive the ui.
         state.apply_update_event(UpdateEvent::Checked(
             1,
@@ -2978,7 +3007,6 @@ mod tests {
             state.update_available.is_none(),
             "the stale answer must not show the update line for the old repository"
         );
-        assert!(state.update_checking, "a stale event must not clear the in-flight flag");
         // The new generation's answer applies.
         state.apply_update_event(UpdateEvent::Checked(
             2,
@@ -2988,7 +3016,135 @@ mod tests {
             },
         ));
         assert!(state.update_available.is_some(), "the current generation drives the ui");
-        assert!(!state.update_checking);
+    }
+
+    #[test]
+    fn an_uptodate_check_clears_a_stale_update_line() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.focus = Focus::UpdateLine;
+        state.update_focus_index = 1;
+        assert!(state.update_line_visible());
+        // The repository's releases moved (a rollback): the re-check says up to date.
+        state.apply_update_event(UpdateEvent::Checked(0, UpdateOutcome::UpToDate));
+        assert!(state.update_available.is_none(), "the stale line is cleared");
+        assert!(!state.update_line_visible());
+        assert_eq!(state.focus, Focus::Rows, "a focus parked on a hidden line falls back to the rows");
+    }
+
+    #[test]
+    fn quitting_during_an_update_needs_a_second_press() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.updating = true;
+        state.quit();
+        assert!(!state.quit, "the first press is refused while the self-replace runs");
+        assert!(state.message.as_deref().is_some_and(|m| m.contains("press q again")));
+        state.quit();
+        assert!(state.quit, "the second press quits");
+    }
+
+    #[test]
+    fn a_finished_update_clears_the_quit_guard() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.updating = true;
+        state.quit();
+        assert!(!state.quit);
+        state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Updated {
+            version: "9.9.9".to_owned(),
+        }));
+        state.quit();
+        assert!(state.quit, "after the update finished a single press quits");
+    }
+
+    #[test]
+    fn a_submitted_repo_url_returns_a_parked_update_line_focus_to_the_rows() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.focus = Focus::UpdateLine;
+        state.open_repo_prompt();
+        if let Some(prompt) = state.repo_prompt.as_mut() {
+            // A refused localhost port: the spawned check's Unreachable answer lands in
+            // the channel unpolled, so it cannot race the assertions below.
+            prompt.editor.set("http://127.0.0.1:9/you/fork");
+        }
+        state.submit_repo_url();
+        assert!(state.repo_prompt.is_none());
+        assert_eq!(state.focus, Focus::Rows, "the hidden line drops its focus at once");
+    }
+
+    #[test]
+    fn a_modal_click_does_not_press_the_update_button_behind_it() {
+        // The record detail owns the screen: a click on the update line row behind it
+        // must not press the update button.
+        use ratatui::crossterm::event::MouseButton;
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.areas.update = Rect {
+            x: 0,
+            y: 20,
+            width: 80,
+            height: 1,
+        };
+        state.update_btn = Rect {
+            x: 2,
+            y: 20,
+            width: 40,
+            height: 1,
+        };
+        state.open_detail();
+        assert!(state.detail.is_some(), "the detail overlay is open");
+        state.handle_mouse(MouseEventKind::Down(MouseButton::Left), 5, 20);
+        assert!(!state.updating, "a click behind the overlay is inert");
+        assert_eq!(state.focus, Focus::Rows, "the update line was not pressed or focused");
+    }
+
+    #[test]
+    fn wheel_is_inert_while_the_repository_popup_is_open() {
+        let mut state = state_of(&["{\"a\":1}", "{\"a\":2}", "{\"a\":3}", "{\"a\":4}", "{\"a\":5}"]);
+        state.open_repo_prompt();
+        state.wheel(1);
+        assert_eq!(state.cursor, 0, "the rows do not scroll behind the pop-up");
+        state.close_repo_prompt();
+        state.wheel(1);
+        assert_eq!(state.cursor, 3, "three lines per notch with no overlay");
+    }
+
+    #[test]
+    fn the_column_picker_stays_closed_on_the_update_line_focus() {
+        // Global `c` opens the value picker from rows/header focus; on the update line
+        // it must not (the picker has no meaning there, `u` is the line's key).
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(
+            0,
+            UpdateOutcome::Available {
+                latest: "9.9.9".to_owned(),
+                notes: release_notes("9.9.9"),
+            },
+        ));
+        state.focus = Focus::UpdateLine;
+        state.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
+        assert!(state.picker.is_none(), "c on the update line never opens the value picker");
+        assert!(state.repo_prompt.is_none(), "c on the update line is inert, u opens the pop-up");
+        state.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
+        assert!(state.repo_prompt.is_some(), "u on the update line opens the repository pop-up");
     }
 
     #[test]
