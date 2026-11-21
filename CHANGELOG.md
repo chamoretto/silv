@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Apply rustfmt to the v0.2.0 code
 
+### Miscellaneous Tasks
+
+- *(ci)* Skip the macOS cross check on non-mac hosts, ring needs an Apple C toolchain
+
 ## [0.2.0] - 2026-11-14
 
 ### Added
