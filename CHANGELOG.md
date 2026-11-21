@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(update)* Self-update from github releases with a TUI update line and changelog
+
 ### Fixed
 
 - Satisfy rust-clippy 1.100 lints

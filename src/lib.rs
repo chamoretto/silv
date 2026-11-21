@@ -12,6 +12,7 @@ pub mod filter;
 pub mod model;
 pub mod parse;
 pub mod render;
+pub mod update;
 
 use std::io::Write;
 use std::time::Instant;
@@ -20,8 +21,9 @@ use clap::Parser;
 use miette::{Context, IntoDiagnostic};
 
 use crate::app::keymap::KeyMap;
-use crate::cli::{Config, RunMode};
+use crate::cli::{Command, Config, RunMode};
 use crate::data::LogStore;
+use crate::update::RepoRef;
 
 /// Parses arguments, loads input and dispatches to the requested mode.
 pub fn run() -> miette::Result<()> {
@@ -29,6 +31,14 @@ pub fn run() -> miette::Result<()> {
     let cli = cli::Cli::parse();
     let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
     config.validate().context("failed to start interactive mode")?;
+
+    if let Some(Command::Update { check, repo_url }) = &cli.command {
+        let repo = repo_url
+            .clone()
+            .or_else(|| config.update_repo.clone())
+            .unwrap_or_else(RepoRef::default_repo);
+        return update::run_cli(*check, &repo).context("silv update failed");
+    }
 
     if config.key_map_show {
         return write_key_map(&config);

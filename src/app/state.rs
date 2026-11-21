@@ -30,6 +30,12 @@ use crate::render::fields::cell_text;
 use crate::render::fields::leaf_values;
 use crate::render::fields::resolve_columns;
 use crate::render::record_render::Cell;
+use crate::update::PerformOutcome;
+use crate::update::ReleaseNote;
+use crate::update::RepoRef;
+use crate::update::UpdateEvent;
+use crate::update::UpdateOutcome;
+use crate::update::UpdateTarget;
 
 /// Live store, kept in RAM by design.
 pub type Store = LogStore;
@@ -87,6 +93,7 @@ pub struct Areas {
     pub prompts: Rect,
     pub status: Rect,
     pub dropdown: Rect,
+    pub update: Rect,
 }
 
 /// Step of the guided filter builder.
@@ -274,8 +281,42 @@ pub struct AppState {
     filter_undo: Vec<Vec<Predicate>>,
     /// Filter lists for Ctrl+Shift+Z: each entry is a list taken over by undo.
     filter_redo: Vec<Vec<Predicate>>,
+    /// Release repository of the interactive update check (default repo, overridable).
+    pub update_repo: RepoRef,
+    /// Newest releases newer than the running version, newest first; the button appears
+    /// on the update line when this is non-empty.
+    pub update_available: Option<Vec<ReleaseNote>>,
+    /// A background release check is in flight.
+    pub update_checking: bool,
+    /// The update download/replace is in flight.
+    pub updating: bool,
+    /// Open changelog overlay (delta between the running and the newest version).
+    pub changelog: Option<ChangelogState>,
+    /// Open pop-up asking for a repository url (unreachable repo, forks).
+    pub repo_prompt: Option<RepoPrompt>,
+    /// Hit rects of the update line buttons, recorded while drawing.
+    pub update_btn: Rect,
+    pub changelog_btn: Rect,
+    /// Update worker events; `run_loop` drains them via `poll_update_events`.
+    pub update_events: (std::sync::mpsc::Sender<UpdateEvent>, std::sync::mpsc::Receiver<UpdateEvent>),
     pub dirty: bool,
     pub quit: bool,
+}
+
+/// The changelog overlay: release notes between the running and the newest version.
+/// `content_height`/`page` are recorded while drawing so keys and wheel can clamp scroll.
+#[derive(Clone, Debug, Default)]
+pub struct ChangelogState {
+    pub scroll: usize,
+    pub content_height: usize,
+    pub page: usize,
+}
+
+/// The repository url pop-up: shown when the release repo is unreachable, opened with `u`.
+#[derive(Clone, Debug)]
+pub struct RepoPrompt {
+    pub message: String,
+    pub editor: Editor,
 }
 
 /// Live rebuilds are skipped above this many records; Enter forces one.
@@ -330,6 +371,15 @@ impl AppState {
             keymap_rebuilds: KEYMAP_REBUILDS,
             filter_undo: Vec::new(),
             filter_redo: Vec::new(),
+            update_repo: config.update_repo.clone().unwrap_or_else(RepoRef::default_repo),
+            update_available: None,
+            update_checking: false,
+            updating: false,
+            changelog: None,
+            repo_prompt: None,
+            update_btn: Rect::default(),
+            changelog_btn: Rect::default(),
+            update_events: std::sync::mpsc::channel(),
             dirty: true,
             quit: false,
             config,
@@ -838,7 +888,9 @@ impl AppState {
     /// Wheel scrolling, overlay-aware: three lines per notch in the active layer.
     pub fn wheel(&mut self, notches: isize) {
         let delta = notches.saturating_mul(3);
-        if self.detail.is_some() {
+        if self.changelog.is_some() {
+            self.changelog_move(delta);
+        } else if self.detail.is_some() {
             self.detail_move(delta);
         } else if self.picker.is_some() {
             self.picker_move(delta);
@@ -1152,6 +1204,16 @@ impl AppState {
                 KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.help = false,
                 _ => {},
             }
+            self.dirty = true;
+            return;
+        }
+        if self.repo_prompt.is_some() {
+            self.handle_repo_prompt_key(key);
+            self.dirty = true;
+            return;
+        }
+        if self.changelog.is_some() {
+            self.handle_changelog_key(key);
             self.dirty = true;
             return;
         }
@@ -1480,6 +1542,7 @@ impl AppState {
             KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Char('/') => self.focus = Focus::Search,
             KeyCode::Char('F') => self.open_filter_wizard(),
+            KeyCode::Char('u') if !self.config.no_update => self.open_repo_prompt(),
             _ => {},
         }
     }
@@ -1661,6 +1724,21 @@ impl AppState {
             self.help = false;
             return;
         }
+        if self.repo_prompt.is_some() {
+            self.close_repo_prompt();
+            return;
+        }
+        if self.changelog.is_some() {
+            return;
+        }
+        if self.update_line_visible() && contains(self.areas.update, row) {
+            if self.update_btn.contains(ratatui::layout::Position::new(column, row)) {
+                self.start_update();
+            } else if self.changelog_btn.contains(ratatui::layout::Position::new(column, row)) {
+                self.open_changelog();
+            }
+            return;
+        }
         if self.picker.is_some() || self.detail.is_some() {
             return;
         }
@@ -1729,6 +1807,225 @@ impl AppState {
 
     pub fn page_height(&self) -> usize {
         usize::from(self.areas.rows.height.saturating_sub(1)).max(1)
+    }
+
+    /// True when the bottom update line (update + changelog buttons) is drawn.
+    pub fn update_line_visible(&self) -> bool {
+        !self.config.no_update && self.update_available.is_some() && !self.updating
+    }
+
+    /// The newest available version, when an update is available.
+    pub fn update_latest(&self) -> Option<&str> {
+        self.update_available
+            .as_ref()
+            .and_then(|notes| notes.first())
+            .map(|note| note.version.as_str())
+    }
+
+    /// Spawns a background release check; the result arrives via `poll_update_events`.
+    pub fn start_update_check(&mut self) {
+        if self.config.no_update || self.update_checking {
+            return;
+        }
+        self.update_checking = true;
+        let tx = self.update_events.0.clone();
+        let target = UpdateTarget::new(self.update_repo.clone());
+        std::thread::spawn(move || {
+            let outcome = target.check();
+            let _ = tx.send(UpdateEvent::Checked(outcome));
+        });
+    }
+
+    /// Spawns the download-and-replace worker, triggered by the update button.
+    pub fn start_update(&mut self) {
+        if self.config.no_update || self.updating {
+            return;
+        }
+        self.updating = true;
+        self.changelog = None;
+        let latest = self.update_latest().unwrap_or("the latest release").to_owned();
+        self.message = Some(format!("update: updating to {latest} ..."));
+        let tx = self.update_events.0.clone();
+        let target = UpdateTarget::new(self.update_repo.clone());
+        std::thread::spawn(move || {
+            let outcome = target.perform();
+            let _ = tx.send(UpdateEvent::Performed(outcome));
+        });
+    }
+
+    /// Applies update worker events that arrived since the last poll.
+    /// Returns true when at least one event changed the state.
+    pub fn poll_update_events(&mut self) -> bool {
+        let mut applied = false;
+        while let Ok(event) = self.update_events.1.try_recv() {
+            self.apply_update_event(event);
+            applied = true;
+        }
+        applied
+    }
+
+    pub fn apply_update_event(&mut self, event: UpdateEvent) {
+        match event {
+            UpdateEvent::Checked(outcome) => {
+                self.update_checking = false;
+                match outcome {
+                    UpdateOutcome::Available { latest, notes } => {
+                        self.message = Some(format!(
+                            "update available: silv {} -> {latest}, click the update line",
+                            crate::update::current_version()
+                        ));
+                        self.update_available = Some(notes);
+                    },
+                    UpdateOutcome::UpToDate => {},
+                    UpdateOutcome::Unreachable { repo, reason } => {
+                        self.message = Some(format!("update: {repo} is unreachable: {reason}"));
+                        self.open_repo_prompt();
+                    },
+                }
+            },
+            UpdateEvent::Performed(outcome) => {
+                self.updating = false;
+                match outcome {
+                    PerformOutcome::Updated { version } => {
+                        self.update_available = None;
+                        self.changelog = None;
+                        self.message = Some(format!("update: silv updated to {version}, restart silv to use it"));
+                    },
+                    PerformOutcome::UpToDate => {
+                        self.update_available = None;
+                        self.message = Some("update: already up to date".to_owned());
+                    },
+                    PerformOutcome::Failed {
+                        reason,
+                        suggest_repo_url,
+                    } => {
+                        self.message = Some(format!("update: failed: {reason}"));
+                        if suggest_repo_url {
+                            self.open_repo_prompt();
+                        }
+                    },
+                }
+            },
+        }
+    }
+
+    /// Opens the repository url pop-up (also the answer to an unreachable repo).
+    pub fn open_repo_prompt(&mut self) {
+        if self.config.no_update {
+            return;
+        }
+        let mut editor = Editor::with_text(&self.update_repo.url());
+        if self.repo_prompt.is_none() {
+            editor.clear();
+        }
+        self.repo_prompt = Some(RepoPrompt {
+            message: "enter repository url: owner/repo or https://github.com/owner/repo".to_owned(),
+            editor,
+        });
+    }
+
+    pub fn close_repo_prompt(&mut self) {
+        self.repo_prompt = None;
+    }
+
+    /// Applies the typed repository url and re-checks in the background.
+    pub fn submit_repo_url(&mut self) {
+        let text = self.repo_prompt.as_ref().map(|prompt| prompt.editor.text());
+        let Some(text) = text else { return };
+        match text.parse::<RepoRef>() {
+            Ok(repo) => {
+                self.message = Some(format!("update: checking {} ...", repo.url()));
+                self.update_repo = repo;
+                self.update_available = None;
+                self.close_repo_prompt();
+                self.start_update_check();
+            },
+            Err(reason) => {
+                self.message = Some(format!("update: {reason}"));
+            },
+        }
+    }
+
+    pub fn open_changelog(&mut self) {
+        if self.update_available.is_some() {
+            self.changelog = Some(ChangelogState::default());
+        }
+    }
+
+    pub fn close_changelog(&mut self) {
+        self.changelog = None;
+    }
+
+    pub fn changelog_move(&mut self, delta: isize) {
+        let Some(changelog) = self.changelog.as_mut() else {
+            return;
+        };
+        let max = changelog.content_height.saturating_sub(changelog.page.max(1));
+        let current = isize::try_from(changelog.scroll).unwrap_or(0);
+        changelog.scroll = usize::try_from(current + delta)
+            .unwrap_or(if delta < 0 { 0 } else { max })
+            .min(max);
+    }
+
+    pub fn changelog_first(&mut self) {
+        if let Some(changelog) = self.changelog.as_mut() {
+            changelog.scroll = 0;
+        }
+    }
+
+    pub fn changelog_last(&mut self) {
+        let max = self
+            .changelog
+            .as_ref()
+            .map(|c| c.content_height.saturating_sub(c.page.max(1)))
+            .unwrap_or(0);
+        if let Some(changelog) = self.changelog.as_mut() {
+            changelog.scroll = max;
+        }
+    }
+
+    fn handle_changelog_key(&mut self, key: KeyPress) {
+        let page = self
+            .changelog
+            .as_ref()
+            .map(|c| isize::try_from(c.page.max(1)).unwrap_or(1))
+            .unwrap_or(1);
+        match key.bind {
+            KeyCode::Esc | KeyCode::Char('q') => self.close_changelog(),
+            KeyCode::Char('j') | KeyCode::Down => self.changelog_move(1),
+            KeyCode::Char('k') | KeyCode::Up => self.changelog_move(-1),
+            KeyCode::Char('f') | KeyCode::PageDown => self.changelog_move(page),
+            KeyCode::Char('b') | KeyCode::PageUp => self.changelog_move(-page),
+            KeyCode::Char('g') => self.changelog_first(),
+            KeyCode::Char('G') => self.changelog_last(),
+            _ => {},
+        }
+    }
+
+    fn handle_repo_prompt_key(&mut self, key: KeyPress) {
+        let Some(prompt) = self.repo_prompt.as_mut() else {
+            return;
+        };
+        match key.bind {
+            KeyCode::Char(_) => {
+                if let Some(ch) = key.typed_char() {
+                    prompt.editor.insert(ch);
+                }
+            },
+            KeyCode::Backspace => {
+                prompt.editor.backspace();
+            },
+            KeyCode::Delete => {
+                prompt.editor.delete();
+            },
+            KeyCode::Left => prompt.editor.left(),
+            KeyCode::Right => prompt.editor.right(),
+            KeyCode::Home => prompt.editor.home(),
+            KeyCode::End => prompt.editor.end(),
+            KeyCode::Enter => self.submit_repo_url(),
+            KeyCode::Esc => self.close_repo_prompt(),
+            _ => {},
+        }
     }
 }
 
@@ -2373,5 +2670,142 @@ mod tests {
         let record = state.current_record().cloned().expect("record");
         let lines = detail_json_lines(&record);
         assert!(lines.iter().any(|line| line.contains("\"a\"")));
+    }
+
+    fn release_notes(latest: &str) -> Vec<ReleaseNote> {
+        vec![ReleaseNote {
+            version: latest.to_owned(),
+            published: "2026-11-20".to_owned(),
+            body: "- fixed everything".to_owned(),
+        }]
+    }
+
+    #[test]
+    fn update_line_shows_only_when_available_enabled_and_idle() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        assert!(!state.update_line_visible());
+        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
+            latest: "9.9.9".to_owned(),
+            notes: release_notes("9.9.9"),
+        }));
+        assert!(state.update_line_visible());
+        state.updating = true;
+        assert!(!state.update_line_visible());
+        state.updating = false;
+        state.config.no_update = true;
+        assert!(!state.update_line_visible());
+    }
+
+    #[test]
+    fn up_to_date_check_leaves_no_line_and_no_prompt() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::UpToDate));
+        assert!(!state.update_line_visible());
+        assert!(state.repo_prompt.is_none());
+    }
+
+    #[test]
+    fn unreachable_check_opens_the_url_prompt_and_u_reopens_it() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Unreachable {
+            repo: "https://github.com/chamoretto/silv".to_owned(),
+            reason: "offline".to_owned(),
+        }));
+        assert!(state.repo_prompt.is_some());
+        assert!(state.message.as_deref().is_some_and(|m| m.contains("offline")));
+        state.close_repo_prompt();
+        state.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
+        assert!(state.repo_prompt.is_some());
+    }
+
+    #[test]
+    fn url_prompt_submit_saves_repo_and_keeps_focus_on_the_prompt_until_ok() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.config.no_update = true; // suppresses the background check thread
+        state.repo_prompt = Some(RepoPrompt {
+            message: String::new(),
+            editor: Editor::with_text("not a url!!"),
+        });
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.repo_prompt.is_some(), "a bad url keeps the prompt open");
+        assert!(
+            state
+                .message
+                .as_deref()
+                .is_some_and(|m| m.contains("not a repository url"))
+        );
+        if let Some(prompt) = state.repo_prompt.as_mut() {
+            prompt.editor.set("you/fork");
+        }
+        state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
+        assert!(state.repo_prompt.is_none());
+        assert_eq!(state.update_repo.url(), "https://github.com/you/fork");
+        assert_eq!(state.update_repo.author, "you");
+        assert_eq!(state.update_repo.repo, "fork");
+        assert!(!state.update_checking, "no_update suppresses the check thread");
+    }
+
+    #[test]
+    fn changelog_opens_from_the_button_rect_and_scrolls() {
+        use ratatui::crossterm::event::MouseButton;
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
+            latest: "9.9.9".to_owned(),
+            notes: release_notes("9.9.9"),
+        }));
+        state.areas.update = Rect {
+            x: 0,
+            y: 20,
+            width: 80,
+            height: 1,
+        };
+        state.changelog_btn = Rect {
+            x: 70,
+            y: 20,
+            width: 10,
+            height: 1,
+        };
+        state.handle_mouse(MouseEventKind::Down(MouseButton::Left), 72, 20);
+        assert!(state.changelog.is_some());
+        {
+            let changelog = state.changelog.as_mut().expect("open");
+            changelog.content_height = 100;
+            changelog.page = 10;
+        }
+        state.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
+        assert_eq!(state.changelog.as_ref().expect("open").scroll, 1);
+        state.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
+        assert_eq!(state.changelog.as_ref().expect("open").scroll, 90);
+        state.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
+        assert_eq!(state.changelog.as_ref().expect("open").scroll, 0);
+        state.handle_mouse(MouseEventKind::ScrollDown, 40, 10);
+        assert_eq!(state.changelog.as_ref().expect("open").scroll, 3);
+        state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
+        assert!(state.changelog.is_none());
+    }
+
+    #[test]
+    fn performed_events_clear_the_update_line() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.apply_update_event(UpdateEvent::Checked(UpdateOutcome::Available {
+            latest: "9.9.9".to_owned(),
+            notes: release_notes("9.9.9"),
+        }));
+        state.updating = true;
+        state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Updated {
+            version: "9.9.9".to_owned(),
+        }));
+        assert!(!state.updating);
+        assert!(state.update_available.is_none());
+        assert!(state.message.as_deref().is_some_and(|m| m.contains("restart")));
+    }
+
+    #[test]
+    fn start_update_is_inert_when_updates_are_disabled() {
+        let mut state = state_of(&["{\"a\":1}"]);
+        state.config.no_update = true;
+        state.updating = false;
+        state.start_update();
+        assert!(!state.updating, "no_update never spawns a worker");
     }
 }

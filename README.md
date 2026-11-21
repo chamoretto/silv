@@ -289,6 +289,31 @@ rustflags = ["-C", "target-feature=+crt-static"]
 `scripts/build-release.ps1` / `scripts/build-release.sh` build the release binary (and on unix
 also the musl build when the target is installed) into `dist/`.
 
+## Self-update
+
+`silv` updates itself from the github releases of this repository
+(raw binaries `silv-<tag>-<target>[.exe]`, the same ones listed above):
+
+```sh
+silv update          # check and install the newest release, replacing the running binary in place
+silv update --check  # report what is available, change nothing
+silv update --repo-url https://github.com/you/silv-fork   # moved repo, renamed author, or a fork
+```
+
+Set `GITHUB_TOKEN` to raise the api rate limit (unauthenticated checks are limited per IP).
+
+In interactive mode a background check runs at startup. When a newer release exists, a line
+appears at the very bottom: `update available: silv 0.2.0 -> 0.3.0 (click to update)` on the
+left, a `changelog` button (the release notes between your version and the newest) on the right.
+Clicking the left button performs the update; the running process keeps the old binary until you
+restart it. When the repository is unreachable (offline, moved, private), silv opens a pop-up
+asking for a repository url - enter it, press Enter, and the check re-runs; the same is available
+from the CLI via `--repo-url`. `u` opens that pop-up at any time.
+
+- `--no-update` (flag) or `SILV_NO_UPDATE=true` (env) disables the startup check, the update
+  line and the changelog button completely.
+- `--repo-url <url>` also works in interactive mode to point the check at a fork from the start.
+
 ## Development
 
 ```sh

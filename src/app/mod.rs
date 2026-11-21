@@ -47,6 +47,7 @@ pub fn run(store: LogStore, config: &Config) -> Result<()> {
     if mouse {
         mouse_enable();
     }
+    state.start_update_check();
 
     let result = run_loop(&mut terminal, &mut state).context("interactive session failed");
 
@@ -125,6 +126,9 @@ fn run_loop(terminal: &mut ratatui::DefaultTerminal, state: &mut AppState) -> Re
         }
         if state.quit {
             return Ok(());
+        }
+        if state.poll_update_events() {
+            state.dirty = true;
         }
         if ratatui::crossterm::event::poll(POLL).map_err(|cause| SilvError::OutputWrite { cause })? {
             match ratatui::crossterm::event::read().map_err(|cause| SilvError::OutputWrite { cause })? {

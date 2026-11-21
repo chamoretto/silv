@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Parser;
+use clap::Subcommand;
 use clap::ValueEnum;
 use miette::Result;
 
@@ -21,6 +22,7 @@ use crate::model::record::FieldAliases;
 use crate::model::timestamp::TimeFormat;
 use crate::parse::LogFormat;
 use crate::parse::plain::PlainOptions;
+use crate::update::RepoRef;
 
 /// Records kept in memory by default, `--max-records` raises or lowers it.
 pub const DEFAULT_MAX_RECORDS: usize = 500_000;
@@ -251,7 +253,10 @@ Examples:
   silv -p app.jsonl --filter-neq message.logger \"aiokafka.*\" --search timeout
   cat app.jsonl | silv -p --filter-eq level WARN --render kv
   silv -p app.jsonl --filter 'level=WARN and not msg~health'
-  silv -i logs/ --include '*.jsonl' -r --max-records 100000";
+  silv -i logs/ --include '*.jsonl' -r --max-records 100000
+  silv update --check          # check for a new release
+  silv update                  # install the newest release
+  silv update --repo-url https://github.com/you/silv-fork";
 
 const KEYS: &str = "\
 Interactive keys:
@@ -270,7 +275,6 @@ pub struct Cli {
     /// Files or directories to read; omit to read stdin, `-` also reads stdin
     #[arg(value_name = "FILES")]
     pub files: Vec<PathBuf>,
-
     /// Force the interactive TUI
     #[arg(short = 'i', long)]
     pub interactive: bool,
@@ -459,6 +463,45 @@ pub struct Cli {
     /// Only report errors
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// Release repository url for update checks and self-update (github.com/owner/repo)
+    #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
+    pub repo_url: Option<RepoRef>,
+
+    /// Disable the update check, the update line and the changelog button (also SILV_NO_UPDATE=true)
+    #[arg(long)]
+    pub no_update: bool,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+/// Subcommands that do not read log input.
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Update silv to the newest published release
+    Update {
+        /// Only report whether an update is available, change nothing
+        #[arg(long)]
+        check: bool,
+
+        /// Repository url to pull releases from, for moved repos and forks (github.com/owner/repo)
+        #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
+        repo_url: Option<RepoRef>,
+    },
+}
+
+/// `clap` value parser for `--repo-url`: a github repository url, owner/repo, or ssh form.
+fn parse_repo_url(input: &str) -> std::result::Result<RepoRef, String> {
+    RepoRef::from_str(input)
+}
+
+/// `SILV_NO_UPDATE=true` (also 1/yes/on; false/0/no/off to clear) disables update features.
+fn env_no_update(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    match env("SILV_NO_UPDATE").map(|v| v.trim().to_ascii_lowercase()) {
+        Some(value) => matches!(value.as_str(), "true" | "1" | "yes" | "y" | "on"),
+        None => false,
+    }
 }
 
 /// Validated configuration of a run.
@@ -499,6 +542,10 @@ pub struct Config {
     pub filter_regex: bool,
     pub plain_separator: String,
     pub aliases: FieldAliases,
+    /// True when update checks and the update line are disabled.
+    pub no_update: bool,
+    /// Repository url override for the interactive update check.
+    pub update_repo: Option<RepoRef>,
 }
 
 impl Default for Config {
@@ -539,6 +586,8 @@ impl Default for Config {
             filter_regex: false,
             plain_separator: " | ".to_owned(),
             aliases: FieldAliases::default(),
+            no_update: false,
+            update_repo: None,
         }
     }
 }
@@ -619,6 +668,8 @@ impl Config {
             filter_regex: cli.filter_regex,
             plain_separator: cli.plain_separator.clone(),
             aliases,
+            no_update: cli.no_update || env_no_update(&|key| std::env::var(key).ok()),
+            update_repo: cli.repo_url.clone(),
         };
         Ok(config)
     }
@@ -943,5 +994,53 @@ mod tests {
     #[test]
     fn key_help_lists_the_interactive_keys() {
         assert!(key_help().contains("focus search bar"));
+    }
+
+    #[test]
+    fn update_subcommand_forms_parse() {
+        let cli = Cli::try_parse_from(["silv", "update"]).expect("parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update {
+                check: false,
+                repo_url: None
+            })
+        ));
+        let cli = Cli::try_parse_from(["silv", "update", "--check"]).expect("parses");
+        assert!(matches!(cli.command, Some(Command::Update { check: true, .. })));
+        let cli = Cli::try_parse_from(["silv", "update", "--repo-url", "you/silv-fork"]).expect("parses");
+        assert!(
+            matches!(cli.command, Some(Command::Update { check: false, repo_url: Some(ref repo) }) if repo.author == "you")
+        );
+        let cli = Cli::try_parse_from(["silv", "app.jsonl"]).expect("a file argument is not a subcommand");
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn no_update_flag_and_repo_url_reach_the_config() {
+        let config = parse(&["-p", "app.jsonl", "--no-update"]);
+        assert!(config.no_update);
+        let config = parse(&["-p", "app.jsonl", "--repo-url", "https://github.com/you/fork"]);
+        assert_eq!(config.update_repo.as_ref().map(|r| r.url()).as_deref(), Some("https://github.com/you/fork"));
+        assert!(!config.no_update);
+    }
+
+    #[test]
+    fn silv_no_update_env_is_an_on_off_switch() {
+        fn env(entries: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+            let owned: Vec<(String, String)> = entries
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect();
+            move |key: &str| owned.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+        }
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "true")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "TRUE")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", " 1 ")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "yes")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "false")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "0")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "garbage")])));
+        assert!(!env_no_update(&env(&[])));
     }
 }
