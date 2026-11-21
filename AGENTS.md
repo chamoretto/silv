@@ -46,6 +46,12 @@ the hook amends commits with the refreshed file. History rewrites (rebase, cherr
 A squash merge of a PR takes the PR title as the commit subject, so the PR title is the changelog
 entry: write it as a Conventional Commits subject, and do not expect the PR body to show up.
 Follow semver 2.0 for versions. (`docs/semantic-versioning.md`)
+Release prep by hand (`chore(release): prepare for vX.Y.Z`): `git commit --amend --no-verify` does NOT
+skip the post-commit hook, and the hook regenerates CHANGELOG.md from the tag position that is about to
+move, folding the stale Unreleased rendering into the amended commit. Guard the amend with
+`SILV_CHANGELOG_HOOK=1`. Sequence: commit prepare -> tag -a -> regenerate (git-cliff now renders the
+released section) -> amend with the guard -> `git tag -f -a` onto the amended sha -> regenerate once
+more; a clean `git status` is the fixed-point check.
 
 ## Self-improvement
 
