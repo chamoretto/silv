@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(update)* Manual update-flow testing against a localhost mock api
 - *(readme)* Installation section, contents links above the preview
+- Exit-code table, token scope, full self-update section, mock script fixes
 
 ### Testing
 

@@ -93,9 +93,10 @@ def build_listing(port, versions, body, triple, exe_suffix):
             {
                 "tag_name": f"v{version}",
                 "name": f"v{version}",
-                # github publishes newest first; the updater walks that order
+                # github publishes newest first; the mock sorts by version_key below,
+                # dates descend with listing position (clamped: never a negative day)
                 "body": f"## v{version}\n\n{body_note(body, version)}",
-                "created_at": f"2026-11-{20 - index:02d}T10:00:00Z",
+                "created_at": f"2026-11-{max(20 - index, 1):02d}T10:00:00Z",
                 "html_url": f"http://127.0.0.1:{port}/releases/tag/v{version}",
                 "assets": [
                     {"id": index + 1, "name": asset, "url": f"http://127.0.0.1:{port}/files/{asset}"}
@@ -115,9 +116,10 @@ def body_note(payload, version):
 
 def version_key(version):
     """Sortable key for a version string, prerelease-aware (1.2.3-rc.1 > 1.2.3 is
-    what the mock publishes on purpose: the updater has to filter it out)."""
-    core, _, pre = version.partition("-")
-    numbers = [int(part) for part in core.split(".") if part.isdigit()]
+    what the mock publishes on purpose: the updater has to filter it out). A leading
+    `v` is accepted, and non-numeric parts sort as zero instead of raising."""
+    core, _, pre = version.strip().removeprefix("v").partition("-")
+    numbers = [int(part) if part.isdigit() else 0 for part in core.split(".")]
     return (numbers, pre)
 
 
@@ -146,9 +148,10 @@ def main():
         print(f"cannot read the asset {asset_path!r}: {error}", file=sys.stderr)
         raise SystemExit(2)
 
-    versions = {args.version, args.extra_version}
+    # `v9.9.9` and `9.9.9` name the same release: normalize before sorting/building tags.
+    versions = {args.version.strip().removeprefix("v"), args.extra_version.strip().removeprefix("v")}
     if args.prerelease:
-        versions.add(args.prerelease)
+        versions.add(args.prerelease.strip().removeprefix("v"))
     versions = sorted(versions, key=version_key, reverse=True)
     listing, assets = build_listing(args.port, versions, payload, triple, exe_suffix)
 

@@ -31,6 +31,7 @@ target\debug\silv.exe update --check --repo-url http://127.0.0.1:8080/testowner/
 Expected:
 
 ```
+silv: checking releases at http://127.0.0.1:8080/testowner/testrepo (running v0.3.0)
 update available: silv 0.3.0 -> 9.9.9
 
 changelog, the releases between silv 0.3.0 and 9.9.9:
@@ -40,7 +41,8 @@ changelog, the releases between silv 0.3.0 and 9.9.9:
 run `silv update` to install it
 ```
 
-Exit code 1 (an update was found, grep-like: 0 means up to date), everything on stderr.
+Exit code 1 (an update was found; grep-like: 0 = up to date, 2 = trouble), everything on stderr.
+Point `--repo-url` at a closed port to see exit 2 with `cannot read releases at ...`.
 
 ## 3. CLI: perform (on a copy, not on your build)
 
@@ -52,10 +54,11 @@ Copy-Item target\debug\silv.exe $env:TEMP\silv-copy.exe
 Remove-Item $env:TEMP\silv-copy.exe
 ```
 
-Expected: `silv updated to 9.9.9; restart silv to use it`. The copy becomes byte-identical to the
-served asset. The served asset is your current debug build, so the replaced copy still reports
-`0.3.0` - that is expected, the version string comes from the binary you served, not from the
-release tag.
+Expected: `silv updated to 9.9.9; restart silv to use it`, exit 0. The copy becomes
+byte-identical to the served asset. The served asset is your current debug build, so the
+replaced copy still reports `0.3.0` - that is expected, the version string comes from the
+binary you served, not from the release tag. A failed install (unwritable directory,
+asset-less release) exits 2 with `update failed: ...`.
 
 ## 3a. Prove the replacement is functional, not just byte equality
 
@@ -66,6 +69,7 @@ copy from it:
 ```powershell
 # 1. Build the "new" release: uppercase the first line of --help (the LONG_ABOUT constant
 #    in src/cli.rs, "Reads JSON Lines..." -> "READS JSON Lines..."), keep it, revert, rebuild:
+mkdir .ai\tmp -Force
 cargo build
 Copy-Item target\debug\silv.exe .ai\tmp\silv-new.exe
 git checkout -- src/cli.rs
@@ -118,7 +122,9 @@ update available: 0.3.0 -> 9.9.9 (click to update, to disable checks use ..   ch
   `Left`/`Right` choose between the update and the changelog button, `Enter` presses the focused
   one, `Esc` returns to the rows. The line is skipped by the cycle while it is not shown.
 - Click `changelog`: the overlay shows the notes of v9.9.9 and v0.4.0; `j/k` scroll, `f/b` page,
-  `g/G` ends, wheel works, `Esc` closes. The last scroll position shows the last full page.
+  `g/G` ends, wheel works, `q`/`Esc` close. The last scroll position shows the last full page.
+- Clicks on the update line behind an open overlay (changelog, record detail, value picker) are
+  inert; while an update downloads, `q` asks for confirmation ("press q again") once.
 - The mock request log shows what silv asked for: the listing, then `/releases/tags/v9.9.9`
   (the pinned release) and the asset download on a perform.
 
@@ -130,7 +136,9 @@ update available: 0.3.0 -> 9.9.9 (click to update, to disable checks use ..   ch
   and the update line appears. Submitting a url while a check is still in flight is not lost: the
   running check belongs to the old repository, its answer is dropped, the new one takes over.
 - Esc closes the pop-up, like every other window; clicks outside it are inert (you cannot lose
-  typed text by clicking around).
+  typed text by clicking around), and the mouse wheel does not scroll the rows behind it.
+  Submitting while the update line was focused returns the focus to the rows (the line hides
+  during the re-check).
 - Stop the mock server (Ctrl-C), press `u`, enter the mock url: silv reports it is unreachable and
   keeps the pop-up open for a new url. The same happens automatically at startup when the
   configured repo is unreachable.
@@ -146,7 +154,9 @@ python scripts/mock-update-api.py --port 8080 --version 0.0.1 --extra-version 0.
 target\debug\silv.exe update --check --repo-url http://127.0.0.1:8080/testowner/testrepo
 ```
 
-Expected: `silv v0.3.0 is up to date`; in the TUI no update line appears at all.
+Expected: `silv v0.3.0 is up to date`, exit 0; in the TUI no update line appears at all, and a
+line painted by an earlier check in the same session is cleared when the re-check answers
+up to date.
 
 ## 7. Prereleases are never offered
 
@@ -165,12 +175,20 @@ prerelease is newer reports `silv v0.3.0 is up to date` and exits 0. The automat
 `check_skips_prerelease_releases`, `check_is_up_to_date_when_only_prereleases_are_newer` and the
 rc-above-stable listing of `update_performs_self_replace_on_a_temp_copy` in `tests/update_mock.rs`.
 
+The pinned install protects the rc rule on forks too: a repository tagging `9.9.8` (no `v`) is
+served by the bare-tag retry, and a repository whose newest release overall is an rc has the
+listing-based install refused - exit 2, binary untouched, never an rc
+(`update_installs_a_fork_that_tags_releases_without_the_v_prefix`,
+`update_refuses_the_listing_fallback_when_a_prerelease_is_newer`).
+
 ## Notes
 
 - The asset name in the listing is `silv-<tag>-<target>[.exe]` for your machine's triple
   (same names as `.github/workflows/release.yml`); the updater picks the asset matching its own
   target, so the mock must run on the machine being updated (or pass `--triple`).
-- `GITHUB_TOKEN` is not needed: the api here is unauthenticated localhost.
+- `GITHUB_TOKEN` is not needed: the api here is unauthenticated localhost. It is never sent
+  here anyway - the token only travels to the default api.github.com (asserted by
+  `the_github_token_never_travels_to_a_custom_repo_url`).
 - The automated version of all this is `tests/update_mock.rs` (same mock, in-process).
 - A binary installed by `cargo install` (in `$CARGO_HOME/bin`, `~/.cargo/bin` by default) is
   detected: the update line says `update using cargo` instead of `click to update`, and pressing
@@ -178,5 +196,5 @@ rc-above-stable listing of `update_performs_self_replace_on_a_temp_copy` in `tes
   would desync cargo's install list (verified by hand: after a self-update of a cargo binary,
   `~/.cargo/.crates2.json` still names the old version, and `cargo install --git <url>` at that
   version says "already installed, use --force"). The CLI mirrors the refusal: `silv update` exits
-  1 with the cargo command, `silv update --force` performs the replace. Try the detection with
+  2 with the cargo command, `silv update --force` performs the replace. Try the detection with
   `cargo install --path .`, then start `silv`.
