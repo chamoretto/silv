@@ -58,11 +58,16 @@ Run the full local CI gate (Windows, WSL for the unix-only keymap code, macOS cr
 pushing: `pwsh -File scripts/ci-local.ps1`. The single-platform commands below are the fallback when
 one gate needs repeating in isolation.
 
-Cross check the macOS build from Windows (no linking, FFI declarations included):
+Cross check the macOS build from Windows: not possible since v0.3.0. The self-update stack
+(ureq -> rustls -> ring) compiles target C/asm, so `cargo check --target aarch64-apple-darwin`
+needs an Apple C toolchain. The CI `check (macos)` job covers the platform; `scripts/ci-local.ps1`
+skips the macOS gate on non-mac hosts. On a Mac run the tests natively, single threaded (the Carbon
+keymap probe answers only on the main thread, see `src/app/keymap/macos.rs`), and print what the
+layout probe found:
 
-```powershell
-rustup target add aarch64-apple-darwin
-cargo check --target aarch64-apple-darwin --all-targets
+```sh
+cargo test --all-targets -- --test-threads=1
+silv --key-map-show
 ```
 
 Unix code paths (xkb layout detection, its tests) compile only on unix, so test them in a Linux
@@ -79,11 +84,3 @@ wsl -d <distro> bash -lc "cd <repo root in the /mnt/... form> && python3 scripts
 ```
 
 Check what the layout probing found on the current machine: `silv --key-map-show`.
-
-On macOS the layout probe calls the Carbon input source API, which answers only on the main thread
-(see `src/app/keymap/macos.rs`), so run its tests single threaded, and print what it found:
-
-```sh
-cargo test --all-targets -- --test-threads=1
-silv --key-map-show
-```

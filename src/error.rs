@@ -117,6 +117,18 @@ pub enum SilvError {
         help("each line maps one layout character to one QWERTY character, separated by a tab")
     )]
     KeyMapLine { path: String, reason: String },
+
+    #[error("{message}")]
+    #[diagnostic(code(silv::update::failed), help("{help}"))]
+    Update { message: String, help: String },
+
+    #[error("{message}")]
+    #[diagnostic(
+        code(silv::update::unavailable),
+        help("{help}"),
+        // Trouble, not a finding: the process exits 2 for it, see the exit codes in README.
+    )]
+    UpdateUnavailable { message: String, help: String },
 }
 
 impl SilvError {

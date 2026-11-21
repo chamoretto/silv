@@ -54,9 +54,17 @@ if (-not $SkipWsl) {
 }
 
 if (-not $SkipMacos) {
-    # Cross check compiles the macOS keymap (checks do not link, so the FFI is covered).
-    Invoke-Step "macos($MacTarget): clippy" { cargo clippy --target $MacTarget --all-targets --all-features -- -D warnings }
-    Invoke-Step "macos($MacTarget): build" { cargo check --target $MacTarget --all-targets }
+    # The self-update stack (ureq -> rustls -> ring) compiles target C/asm, so a Windows host
+    # cannot cross check aarch64-apple-darwin (no Apple C toolchain). CI has a native macOS job;
+    # run the checks yourself on a Mac, single threaded (the key map probe is main thread only).
+    if ($IsMacOS) {
+        Invoke-Step "macos($MacTarget): clippy" { cargo clippy --target $MacTarget --all-targets --all-features -- -D warnings }
+        Invoke-Step "macos($MacTarget): build" { cargo check --target $MacTarget --all-targets }
+        Invoke-Step "macos($MacTarget): test" { cargo test --all-targets -- --test-threads=1 }
+    }
+    else {
+        Write-Host '==> macos: skipped (ring needs an Apple C toolchain; CI check (macos) job covers it)'
+    }
 }
 
 Write-Host 'All gates passed.'

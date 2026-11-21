@@ -65,6 +65,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     };
     let prompts = prompt_lines(state, usize::from(area.width));
     let prompts_height = u16::try_from(prompts.len()).unwrap_or(1);
+    let update_height = u16::from(state.update_line_visible());
     let rects = Layout::vertical([
         Constraint::Length(1),
         Constraint::Length(chips_height),
@@ -73,6 +74,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         Constraint::Length(1),
         Constraint::Length(prompts_height),
         Constraint::Length(1),
+        Constraint::Length(update_height),
     ])
     .split(area);
 
@@ -82,6 +84,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     state.areas.rows = rects[3];
     state.areas.prompts = rects[5];
     state.areas.status = rects[6];
+    state.areas.update = rects[7];
 
     draw_search(frame, state, rects[0]);
     draw_chips(frame, state, rects[1], &chips);
@@ -89,6 +92,7 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     draw_rows(frame, state, rects[3]);
     draw_prompts(frame, &prompts, rects[5]);
     draw_status(frame, state, rects[6]);
+    draw_update_line(frame, state, rects[7]);
     draw_wizard_dropdown(frame, state, area);
 
     if let Some(picker) = state.picker.as_ref() {
@@ -104,6 +108,12 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
         let area = centered(area, 84, 90);
         frame.render_widget(Clear, area);
         help::draw(frame, area);
+    }
+    if state.changelog.is_some() {
+        draw_changelog(frame, state, area);
+    }
+    if state.repo_prompt.is_some() {
+        draw_repo_prompt(frame, state, area);
     }
 }
 
@@ -748,6 +758,193 @@ pub fn centered(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
         width,
         height,
     }
+}
+
+/// The update line under the status bar: update button on the left, changelog on the right.
+/// The button rects are recorded in `state` for mouse hit testing.
+fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
+    state.update_btn = Rect::default();
+    state.changelog_btn = Rect::default();
+    if area.height == 0 {
+        return;
+    }
+    let current = crate::update::current_version();
+    let latest = state.update_latest().unwrap_or("?");
+    let right = " changelog ".to_owned();
+    let width = usize::from(area.width);
+    let right_w = crate::render::text::width(&right).min(width);
+    // A cargo install is updated by cargo, not by the self-update (see `cargo_managed_install`).
+    let action = if state.update_cargo_managed {
+        "update using cargo"
+    } else {
+        "click to update"
+    };
+    let text = format!(
+        "update available: {current} -> {latest} ({action}, to disable checks use \"--no-update\" or \"SILV_NO_UPDATE=true\") "
+    );
+    // The hint stays in the yellow button even when squeezed: it is cut with the ellipsis
+    // so the user can see the text goes on.
+    let left = crate::render::text::truncate(&text, width.saturating_sub(right_w).max(1));
+    // The focused button (Tab to the line, Left/Right to choose) is the brighter variant.
+    let focused_update = state.focus == Focus::UpdateLine && state.update_focus_index == 0;
+    let focused_changelog = state.focus == Focus::UpdateLine && state.update_focus_index == 1;
+    let left_style = Style::default()
+        .fg(Color::Black)
+        .bg(if focused_update {
+            Color::LightYellow
+        } else {
+            Color::Yellow
+        })
+        .add_modifier(Modifier::BOLD);
+    let right_style = Style::default()
+        .fg(Color::Black)
+        .bg(if focused_changelog {
+            Color::White
+        } else {
+            Color::LightBlue
+        })
+        .add_modifier(if focused_changelog {
+            Modifier::BOLD
+        } else {
+            Modifier::empty()
+        });
+    let left_w = crate::render::text::width(&left).min(width);
+    let right_x = width.saturating_sub(right_w);
+    state.update_btn = Rect {
+        x: area.x,
+        y: area.y,
+        width: u16::try_from(left_w).unwrap_or(area.width),
+        height: 1,
+    };
+    state.changelog_btn = Rect {
+        x: area.x + u16::try_from(right_x).unwrap_or(area.width),
+        y: area.y,
+        width: u16::try_from(right_w).unwrap_or(area.width),
+        height: 1,
+    };
+    if right_x < left_w {
+        // A squeezed line: the changelog button wins the overlap, the update button
+        // gets no click rect (a click there means the changelog, drawing stays as is).
+        state.update_btn = Rect::default();
+    }
+    let fill = " ".repeat(width.saturating_sub(left_w).saturating_sub(right_w));
+    let line = Line::from(vec![
+        Span::styled(left, left_style),
+        Span::raw(fill),
+        Span::styled(right, right_style),
+    ]);
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+/// Release notes between the running and the newest version, word-wrapped to `width`.
+fn changelog_lines(notes: &[crate::update::ReleaseNote], width: usize) -> Vec<Line<'static>> {
+    let width = width.max(20);
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    for (index, note) in notes.iter().enumerate() {
+        let heading = if note.published.is_empty() {
+            format!("v{}", note.version)
+        } else {
+            format!("v{} ({})", note.version, note.published)
+        };
+        lines.push(Line::from(Span::styled(
+            heading,
+            Style::default()
+                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::UNDERLINED),
+        )));
+        for raw in note.body.lines() {
+            let raw = raw.trim_end();
+            if raw.is_empty() {
+                lines.push(Line::from(""));
+                continue;
+            }
+            for wrapped in crate::render::text::wrap(raw, width) {
+                lines.push(Line::from(wrapped));
+            }
+        }
+        if index + 1 < notes.len() {
+            lines.push(Line::from(""));
+            lines.push(Line::from(""));
+        }
+    }
+    lines
+}
+
+/// Cached changelog rendering: rebuilds the wrapped lines when the overlay opens,
+/// the newest version changes, or the width changes; clamps scroll so the last page
+/// lands flush. The version stamp makes a stale cache impossible by construction
+/// (see the `ChangelogState` notes).
+fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
+    let latest = state.update_latest().unwrap_or_default().to_owned();
+    let Some(changelog) = state.changelog.as_mut() else {
+        return 0;
+    };
+    if changelog.lines.is_empty() || changelog.width != width || changelog.version != latest {
+        let notes = state.update_available.clone().unwrap_or_default();
+        changelog.lines = changelog_lines(&notes, width);
+        changelog.width = width;
+        changelog.version = latest;
+        changelog.content_height = changelog.lines.len();
+    }
+    changelog.page = page;
+    let max = changelog.content_height.saturating_sub(page.max(1));
+    changelog.scroll = changelog.scroll.min(max);
+    changelog.scroll
+}
+
+fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
+    let latest = state
+        .update_available
+        .as_ref()
+        .and_then(|notes| notes.first())
+        .map(|note| note.version.clone())
+        .unwrap_or_default();
+    let current = crate::update::current_version();
+    let block = Block::bordered()
+        .title(format!(" changes: silv {current} -> {latest} "))
+        .title_bottom(" j/k scroll, g/G ends, q/Esc closes ")
+        .border_style(Style::default().fg(Color::DarkGray));
+    let inner = block.inner(area);
+    frame.render_widget(Clear, area);
+    frame.render_widget(block, area);
+
+    let scroll = changelog_scroll(state, usize::from(inner.width), usize::from(inner.height));
+    let lines = state.changelog.as_ref().map(|c| c.lines.clone()).unwrap_or_default();
+    let paragraph = Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
+    frame.render_widget(paragraph, inner);
+}
+
+fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
+    let Some(prompt) = state.repo_prompt.as_ref() else {
+        return;
+    };
+    let width = area.width.clamp(40, 76);
+    let popup = Rect {
+        x: area.x + area.width.saturating_sub(width) / 2,
+        y: area.y + area.height.saturating_sub(7) / 2,
+        width,
+        height: 7.min(area.height),
+    };
+    let block = Block::bordered()
+        .title(" update: repository ")
+        .title_bottom(" Enter applies, Esc cancels ")
+        .border_style(Style::default().fg(Color::DarkGray));
+    frame.render_widget(Clear, popup);
+    frame.render_widget(block.clone(), popup);
+    let inner = block.inner(popup);
+    let message = Paragraph::new(prompt.message.clone()).wrap(ratatui::widgets::Wrap { trim: true });
+    frame.render_widget(message, inner);
+    let editor_rect = Rect {
+        x: inner.x,
+        y: inner.y + 2,
+        width: inner.width,
+        height: 1,
+    };
+    let text = prompt.editor.text();
+    let spans = std::iter::once(Span::styled("repo url: ", Style::default().fg(Color::DarkGray)))
+        .chain(cursor_spans(&text, prompt.editor.cursor(), true))
+        .collect::<Vec<_>>();
+    frame.render_widget(Paragraph::new(Line::from(spans)), editor_rect);
 }
 
 pub const fn gap() -> &'static str {

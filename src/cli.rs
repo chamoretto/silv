@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::str::FromStr;
 
 use clap::Parser;
+use clap::Subcommand;
 use clap::ValueEnum;
 use miette::Result;
 
@@ -21,6 +22,7 @@ use crate::model::record::FieldAliases;
 use crate::model::timestamp::TimeFormat;
 use crate::parse::LogFormat;
 use crate::parse::plain::PlainOptions;
+use crate::update::RepoRef;
 
 /// Records kept in memory by default, `--max-records` raises or lowers it.
 pub const DEFAULT_MAX_RECORDS: usize = 500_000;
@@ -251,17 +253,21 @@ Examples:
   silv -p app.jsonl --filter-neq message.logger \"aiokafka.*\" --search timeout
   cat app.jsonl | silv -p --filter-eq level WARN --render kv
   silv -p app.jsonl --filter 'level=WARN and not msg~health'
-  silv -i logs/ --include '*.jsonl' -r --max-records 100000";
+  silv -i logs/ --include '*.jsonl' -r --max-records 100000
+  silv update --check          # check for a new release (exit: 1 available, 0 current, 2 trouble)
+  silv update                  # install the newest stable release
+  silv update --repo-url https://github.com/you/silv-fork
+  silv update --force          # self-update a cargo-managed binary (cargo tracks it)
 
-const KEYS: &str = "\
 Interactive keys:
   /            focus search bar         F            filter wizard: field, operator, value
-  Tab / S-Tab  focus header cell        Enter        open record / apply input / sort focused column
+  Tab / S-Tab  cycle focus areas        Enter        open record / apply input / sort focused column
   s            sort focused column      c            field picker (toggle columns)
   j k, PgUp..  move row                 g G          first / last row
   d            delete focused filter    x            clear search
-  Esc          close overlay, clear search, quit     q, Ctrl-C  quit
-  Mouse        click row = detail, click header = sort, wheel = scroll";
+  u            update repo url          update line: Tab reaches it, Left/Right choose the button, Enter presses it
+  Esc          close overlay, leave mode            q, Ctrl-C  quit
+  Mouse        click row = detail, click header = drag mode (Enter/2nd click sorts), wheel = scroll";
 
 /// Raw arguments as parsed by clap.
 #[derive(Parser, Debug, Clone)]
@@ -270,7 +276,6 @@ pub struct Cli {
     /// Files or directories to read; omit to read stdin, `-` also reads stdin
     #[arg(value_name = "FILES")]
     pub files: Vec<PathBuf>,
-
     /// Force the interactive TUI
     #[arg(short = 'i', long)]
     pub interactive: bool,
@@ -459,6 +464,63 @@ pub struct Cli {
     /// Only report errors
     #[arg(short = 'q', long)]
     pub quiet: bool,
+
+    /// Release repository for the interactive update check: owner/repo,
+    /// https://github.com/owner/repo, git@github.com:owner/repo.git, ssh://git@github.com/...,
+    /// a GitHub Enterprise api url (https://host/api/v3/owner/repo). The url scheme is kept
+    /// (http is accepted for local test apis); ssh forms always address github.com.
+    /// A non-github origin becomes the api base; GITHUB_TOKEN is never sent to it
+    #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
+    pub repo_url: Option<RepoRef>,
+
+    /// Disable the update check, the update line and the changelog button (also SILV_NO_UPDATE=true)
+    #[arg(long)]
+    pub no_update: bool,
+
+    #[command(subcommand)]
+    pub command: Option<Command>,
+}
+
+/// Subcommands that do not read log input.
+#[derive(Subcommand, Debug, Clone)]
+pub enum Command {
+    /// Update silv to the newest published release
+    Update {
+        /// Only report whether an update is available, change nothing.
+        /// Exit code: 1 when an update is available, 0 when up to date, 2 when the
+        /// check cannot complete (repository unreachable; grep-like: branch on it).
+        #[arg(long)]
+        check: bool,
+
+        /// Release repository to check and update from, for moved repos and forks.
+        /// Accepted: owner/repo, https://github.com/owner/repo, git@github.com:owner/repo.git,
+        /// ssh://git@github.com/... (ssh forms always address github.com), a GitHub Enterprise
+        /// api url (https://host/api/v3/owner/repo). The url scheme is kept (http is accepted
+        /// for local test apis); a non-github origin becomes the api base, and GITHUB_TOKEN
+        /// is never sent to it.
+        #[arg(long, value_name = "URL", value_parser = parse_repo_url)]
+        repo_url: Option<RepoRef>,
+
+        /// Replace a cargo-managed binary anyway. A binary in the cargo install directory
+        /// (`~/.cargo/bin`) is cargo-managed: cargo tracks its version, so the update is
+        /// refused by default; --force performs it and leaves cargo's install list behind
+        /// (`cargo install --git <url> --force` re-syncs it).
+        #[arg(long)]
+        force: bool,
+    },
+}
+
+/// `clap` value parser for `--repo-url`: a github repository url, owner/repo, or ssh form.
+fn parse_repo_url(input: &str) -> std::result::Result<RepoRef, String> {
+    RepoRef::from_str(input)
+}
+
+/// `SILV_NO_UPDATE=true` (also 1/yes/on; false/0/no/off to clear) disables update features.
+fn env_no_update(env: &dyn Fn(&str) -> Option<String>) -> bool {
+    match env("SILV_NO_UPDATE").map(|v| v.trim().to_ascii_lowercase()) {
+        Some(value) => matches!(value.as_str(), "true" | "1" | "yes" | "y" | "on"),
+        None => false,
+    }
 }
 
 /// Validated configuration of a run.
@@ -499,6 +561,10 @@ pub struct Config {
     pub filter_regex: bool,
     pub plain_separator: String,
     pub aliases: FieldAliases,
+    /// True when update checks and the update line are disabled.
+    pub no_update: bool,
+    /// Repository url override for the interactive update check.
+    pub update_repo: Option<RepoRef>,
 }
 
 impl Default for Config {
@@ -539,6 +605,8 @@ impl Default for Config {
             filter_regex: false,
             plain_separator: " | ".to_owned(),
             aliases: FieldAliases::default(),
+            no_update: false,
+            update_repo: None,
         }
     }
 }
@@ -619,6 +687,8 @@ impl Config {
             filter_regex: cli.filter_regex,
             plain_separator: cli.plain_separator.clone(),
             aliases,
+            no_update: cli.no_update || env_no_update(&|key| std::env::var(key).ok()),
+            update_repo: cli.repo_url.clone(),
         };
         Ok(config)
     }
@@ -819,11 +889,6 @@ fn pair_leaves(values: &[String], op: LeafOp, ctx: &FilterContext) -> Result<Vec
     Ok(out)
 }
 
-/// Interactive key help, shown by the help overlay.
-pub const fn key_help() -> &'static str {
-    KEYS
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -941,7 +1006,64 @@ mod tests {
     }
 
     #[test]
-    fn key_help_lists_the_interactive_keys() {
-        assert!(key_help().contains("focus search bar"));
+    fn long_help_carries_the_examples_and_the_interactive_key_sheet() {
+        // The KEYS block must reach `--help` (after_help), that is its only surface.
+        use clap::CommandFactory;
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("Examples:"), "the examples block is in the long help");
+        assert!(help.contains("Interactive keys:"), "the key sheet is in the long help");
+        assert!(help.contains("focus search bar"), "the key sheet lists the keys");
+        assert!(help.contains("update line: Tab reaches it"), "the update line keys are listed");
+    }
+
+    #[test]
+    fn update_subcommand_forms_parse() {
+        let cli = Cli::try_parse_from(["silv", "update"]).expect("parses");
+        assert!(matches!(
+            cli.command,
+            Some(Command::Update {
+                check: false,
+                repo_url: None,
+                force: false,
+            })
+        ));
+        let cli = Cli::try_parse_from(["silv", "update", "--check"]).expect("parses");
+        assert!(matches!(cli.command, Some(Command::Update { check: true, .. })));
+        let cli = Cli::try_parse_from(["silv", "update", "--force"]).expect("parses");
+        assert!(matches!(cli.command, Some(Command::Update { force: true, .. })));
+        let cli = Cli::try_parse_from(["silv", "update", "--repo-url", "you/silv-fork"]).expect("parses");
+        assert!(
+            matches!(cli.command, Some(Command::Update { check: false, repo_url: Some(ref repo), .. }) if repo.author == "you")
+        );
+        let cli = Cli::try_parse_from(["silv", "app.jsonl"]).expect("a file argument is not a subcommand");
+        assert!(cli.command.is_none());
+    }
+
+    #[test]
+    fn no_update_flag_and_repo_url_reach_the_config() {
+        let config = parse(&["-p", "app.jsonl", "--no-update"]);
+        assert!(config.no_update);
+        let config = parse(&["-p", "app.jsonl", "--repo-url", "https://github.com/you/fork"]);
+        assert_eq!(config.update_repo.as_ref().map(|r| r.url()).as_deref(), Some("https://github.com/you/fork"));
+        assert!(!config.no_update);
+    }
+
+    #[test]
+    fn silv_no_update_env_is_an_on_off_switch() {
+        fn env(entries: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+            let owned: Vec<(String, String)> = entries
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect();
+            move |key: &str| owned.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
+        }
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "true")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "TRUE")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", " 1 ")])));
+        assert!(env_no_update(&env(&[("SILV_NO_UPDATE", "yes")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "false")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "0")])));
+        assert!(!env_no_update(&env(&[("SILV_NO_UPDATE", "garbage")])));
+        assert!(!env_no_update(&env(&[])));
     }
 }

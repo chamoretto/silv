@@ -9,13 +9,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- *(update)* Self-update from github releases with a TUI update line and changelog
+- *(app)* Tab-focusable update line with Enter to press the buttons
+
 ### Fixed
 
 - Satisfy rust-clippy 1.100 lints
+- *(update)* Spaced --check output with a changelog header, update line without the leading gap
+- Drop the redundant package.homepage, it equals package.repository
+- *(update)* Harden self-update checks, installs, cargo-managed binary
+- *(update)* Correct release selection, token scope, exit codes
+- *(app)* TUI update-line safety and modal isolation
+- *(cli)* Key sheet reaches --help, flag docs complete, exit 2
+
+### Documentation
+
+- *(update)* Manual update-flow testing against a localhost mock api
+- *(readme)* Installation section, contents links above the preview
+- Exit-code table, token scope, full self-update section, mock script fixes
+
+### Testing
+
+- *(update)* Prove self-replace with a distinct served binary, add the manual proof walkthrough
+- *(update)* Cover prereleases, pinned tags, exit codes, cargo refusal
+
+### Performance
+
+- *(app)* Cache the changelog overlay rendering between frames
 
 ### Styling
 
 - Apply rustfmt to the v0.2.0 code
+
+### Miscellaneous Tasks
+
+- *(ci)* Skip the macOS cross check on non-mac hosts, ring needs an Apple C toolchain
 
 ## [0.2.0] - 2026-11-14
 

@@ -5,6 +5,30 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 
+## Contents
+
+- [Preview](#preview)
+- [Little disclaimer](#little-disclaimer)
+- [Description](#description)
+- [Installation](#installation)
+- [Build](#build)
+- [Quick start](#quick-start)
+- [Input](#input)
+- [Memory overhead](#memory-overhead)
+- [Fields](#fields)
+- [Columns and rendering](#columns-and-rendering)
+- [Filtering and search](#filtering-and-search)
+- [Interactive key map](#interactive-key-map)
+- [Colors and output](#colors-and-output)
+- [Mouse and terminal compatibility](#mouse-and-terminal-compatibility)
+- [Exit codes](#exit-codes)
+- [Diagnostics](#diagnostics)
+- [Static binaries (drop-in SFTP deployment)](#static-binaries-drop-in-sftp-deployment)
+- [Self-update](#self-update)
+- [Development](#development)
+- [AI disclosure](#ai-disclosure)
+- [License](#license)
+
 ## Preview
 
 ![interactive table view with a level!=DEBUG filter chip and the sort header focused](docs/images/ui-interactive-sample-jsonl.png)
@@ -29,6 +53,44 @@ Kibana-like layout. Two modes share the same visuals:
 
 Single statically linked binary, drop it on a server over SFTP and run it.
 
+## Installation
+
+Prebuilt static binaries are attached to every [release](https://github.com/chamoretto/silv/releases),
+named `silv-<tag>-<target>[.exe]` (with `SHA256SUMS`):
+
+| Target | Asset |
+| --- | --- |
+| Linux x64, any distro (fully static musl) | `silv-<tag>-x86_64-unknown-linux-musl` |
+| Windows x64 | `silv-<tag>-x86_64-pc-windows-msvc.exe` |
+| Apple silicon | `silv-<tag>-aarch64-apple-darwin` |
+
+```sh
+# unix, user-wide: no sudo, self-update works without privileges
+chmod +x silv-<tag>-x86_64-unknown-linux-musl
+mv silv-<tag>-x86_64-unknown-linux-musl ~/.local/bin/silv    # a folder on your PATH
+
+# unix, system-wide: root-owned like a regular install; updates then need `sudo silv update`
+sudo install -m 0755 silv-<tag>-x86_64-unknown-linux-musl /usr/local/bin/silv
+
+# macOS (apple silicon), user-wide: downloads get the com.apple.quarantine xattr and
+# Gatekeeper blocks the first run; clear it, then install like any unix binary
+xattr -c silv-<tag>-aarch64-apple-darwin
+chmod +x silv-<tag>-aarch64-apple-darwin
+mv silv-<tag>-aarch64-apple-darwin ~/.local/bin/silv
+```
+
+Windows: download the `.exe`, rename it to `silv.exe`, put it in a folder that is on `PATH`.
+
+macOS note: the quarantine tag comes from the browser saving the download, not from the file
+itself - the project is unsigned (no developer id), so a quarantined binary gets blocked on the
+first run until the tag is cleared (`xattr -c`, above). `silv update` writes the new binary
+itself, so updated binaries are never quarantined and need no extra step.
+
+There is no package manager; build from source with
+`cargo install --git https://github.com/chamoretto/silv` or see [Build](#build). Once installed,
+`silv update` keeps it current - a `cargo install` binary is detected and updated through cargo
+instead, see [Self-update](#self-update).
+
 ## Build
 
 ```sh
@@ -37,8 +99,7 @@ scripts/build-release.ps1        # windows release (dist/)
 scripts/build-release.sh         # unix releases (dist/)
 ```
 
-Prebuilt binaries for windows, linux (musl) and apple silicon are attached to each
-[release](https://github.com/chamoretto/silv/releases) (with `SHA256SUMS`).
+Prebuilt binaries are in the [releases](#installation).
 
 Requires Rust stable (edition 2024). All dependencies are pure Rust with exact `=x.y.z` pins, so
 fully static builds work on windows (MSVC CRT static) and linux (musl).
@@ -238,10 +299,14 @@ it came from and every pair.
 ## Exit codes
 
 ```text
-0  records matched (or interactive session ended)
-1  no records matched (stream mode, grep compatible) or a runtime/diagnostic error
-2  command line usage error (clap)
+0  records matched (or interactive session ended); `silv update`: up to date / installed
+1  no records matched (stream mode, grep compatible) or a runtime/diagnostic error;
+   `silv update --check`: an update is available (the grep-style "found" signal, code silv::update::failed)
+2  command line usage error (clap); `silv update`: trouble - the repository is unreachable,
+   the install failed, a cargo-managed binary refused the self-update (code silv::update::unavailable)
 ```
+
+The `--check` codes let a script branch: `silv update --check; case $? in 0) current;; 1) update;; 2) trouble;; esac`.
 
 ## Diagnostics
 
@@ -249,7 +314,8 @@ Errors are rendered by miette with stable codes and source spans:
 `silv::io::read`, `silv::io::write`, `silv::input::empty`, `silv::input::format_undetected`,
 `silv::parse::invalid_line` (points at the exact line), `silv::field::path_invalid`,
 `silv::filter::expression_invalid`, `silv::filter::glob_invalid`, `silv::filter::regex_invalid`,
-`silv::time::format_invalid`, `silv::app::not_a_terminal`, `silv::cli::argument_invalid`.
+`silv::time::format_invalid`, `silv::app::not_a_terminal`, `silv::cli::argument_invalid`,
+`silv::keymap::read`, `silv::keymap::line_invalid`, `silv::update::failed`, `silv::update::unavailable`.
 
 ```text
 Error: silv::parse::invalid_line
@@ -289,10 +355,79 @@ rustflags = ["-C", "target-feature=+crt-static"]
 `scripts/build-release.ps1` / `scripts/build-release.sh` build the release binary (and on unix
 also the musl build when the target is installed) into `dist/`.
 
+## Self-update
+
+`silv` updates itself from the github releases of this repository
+(raw binaries `silv-<tag>-<target>[.exe]`, the same ones listed in [Installation](#installation)):
+
+```sh
+silv update          # check and install the newest stable release, replacing the running binary in place
+silv update --check  # report what is available, change nothing
+silv update --repo-url https://github.com/you/silv-fork   # moved repo, renamed author, GitHub Enterprise, or a fork
+silv update --force  # self-update a cargo-managed binary anyway (see the cargo note below)
+```
+
+`--check` is script-friendly: exit 1 means an update is available, 0 means up to date,
+2 means trouble (repository unreachable, install failure, refusal).
+
+Which release gets installed: semver prereleases (`0.4.0-rc.1`) never drive the update line
+or the install, and releases without an asset for your platform are skipped. The install
+pins the exact version the check showed (`/releases/tags/v<version>`); it does not fall back
+to "the latest release", because that could land you on a release candidate. A fork that
+tags its releases differently (bare `9.9.8`, no `v` prefix) is served by trying the bare tag,
+and the listing-based choice only when the newest release over all is the offered stable one.
+
+Set `GITHUB_TOKEN` to raise the api rate limit (unauthenticated checks are limited per IP).
+The token is sent to the default api.github.com target only: a custom `--repo-url` host
+(a fork server, GitHub Enterprise, a local test api) never receives it. GitHub Enterprise
+checks therefore run unauthenticated and use the api's own rate limits.
+
+The replace swaps the binary atomically and restores the old file's mode bits, so the result
+stays executable. It needs write permission on the directory containing the binary: a user-owned
+install (`~/.local/bin`) updates without privileges; a root-owned system install
+(`/usr/local/bin`) needs `sudo silv update` - the new file ends up root-owned, `0755`, usable by
+everyone. `sudo` strips the environment, so pass the token through with `sudo -E silv update`.
+In interactive mode a perform failure is reported in the status bar, it never kills the session.
+
+A binary in the cargo bin dir (`~/.cargo/bin`) is detected as a cargo install: cargo tracks
+its version, so the self-update is not offered. The update line says `update using cargo`,
+the button prints the exact `cargo install --git <url> --force` command that keeps cargo's
+install list in sync, and `silv update` refuses with the same command (exit 2); `--force`
+overrides the refusal.
+
+In interactive mode one background check runs at startup. When a newer release exists, a line
+appears at the very bottom: `update available: 0.3.0 -> 0.4.0 (click to update, to disable
+checks use "--no-update" or "SILV_NO_UPDATE=true")` on the left, a `changelog` button (the
+release notes between your version and the newest) on the right. Tab focuses the line,
+Left/Right choose the button, Enter presses it; clicking does the same. While an update
+downloads, `q` is refused once ("press q again") so a mid-replace kill cannot truncate the
+binary. When the repository is unreachable (offline, moved, private), silv opens a pop-up
+asking for a repository url - enter it, press Enter, and the check re-runs; Esc closes it
+(clicks are inert while it is open), `u` opens it at any time, and `--repo-url` covers the CLI.
+
+- `--no-update` (flag) or `SILV_NO_UPDATE=true` (env) disables the startup check, the update
+  line and the changelog button completely - set it on offline machines.
+- `--repo-url <url>` also works in interactive mode to point the check at a fork from the start.
+  Accepted forms: `owner/repo`, `https://github.com/owner/repo`, `git@github.com:owner/repo.git`,
+  `ssh://git@github.com/owner/repo.git`, a GitHub Enterprise api url
+  (`https://host/api/v3/owner/repo`). The url scheme is kept (plain `http` is accepted for
+  local test apis); ssh forms always address github.com.
+
+About cargo installs (verified by hand, not by CI): `silv update --force` replaces the binary
+and leaves cargo's install bookkeeping behind (cargo keeps listing the old version), and
+`cargo install --git <url>` then refuses to re-run ("already installed, use `--force`").
+Recommendation for cargo-managed users: `--no-update`, and update with cargo. Before relying
+on `cargo install --git` installs, verify the tag install by hand:
+`cargo install --git <url> --tag v0.3.0`.
+
+`scripts/mock-update-api.py` mocks the github api on localhost for testing all of this by hand
+(release listing, per-tag lookups, assets, prereleases): see `docs/manual-update-test.md`.
+
 ## Development
 
 ```sh
-cargo test --all-targets        # 196 unit + 26 end-to-end CLI tests
+cargo test --all-targets        # 235 unit + 26 end-to-end CLI tests (238 unit on unix)
+                                # + 14 self-update integration tests (mock github api)
 cargo clippy --all-targets -- -D warnings
 cargo fmt
 ```
