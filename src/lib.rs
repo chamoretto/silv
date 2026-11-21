@@ -23,6 +23,7 @@ use miette::{Context, IntoDiagnostic};
 use crate::app::keymap::KeyMap;
 use crate::cli::{Command, Config, RunMode};
 use crate::data::LogStore;
+use crate::error::SilvError;
 use crate::update::RepoRef;
 
 /// Parses arguments, loads input and dispatches to the requested mode.
@@ -30,15 +31,29 @@ pub fn run() -> miette::Result<()> {
     let started = Instant::now();
     let cli = cli::Cli::parse();
     let mut config = Config::from_cli(&cli).context("failed to parse command line arguments")?;
-    config.validate().context("failed to start interactive mode")?;
 
+    // The update subcommand runs before validation: it reads the network, not the
+    // terminal, so `silv update` in a pipe with a mode flag set must not fail on it.
     if let Some(Command::Update { check, repo_url, force }) = &cli.command {
         let repo = repo_url
             .clone()
             .or_else(|| config.update_repo.clone())
             .unwrap_or_else(RepoRef::default_repo);
-        return update::run_cli(*check, *force, &repo).context("silv update failed");
+        return match update::run_cli(*check, *force, &repo) {
+            Ok(()) => Ok(()),
+            // grep-like exit codes: 1 (update available) travels as an ordinary
+            // diagnostic, trouble (unreachable, install failure, refusal) exits 2.
+            Err(cause) => {
+                if is_update_trouble(&cause) {
+                    eprintln!("{cause:?}");
+                    std::process::exit(2);
+                }
+                Err(cause).context("silv update failed")
+            },
+        };
     }
+
+    config.validate().context("failed to start interactive mode")?;
 
     if config.key_map_show {
         return write_key_map(&config);
@@ -71,6 +86,14 @@ pub fn run() -> miette::Result<()> {
             Ok(())
         },
     }
+}
+
+/// True for update diagnostics that mean trouble (repo unreachable, install failure,
+/// cargo refusal): those exit 2, while "update available" keeps the grep-like exit 1.
+fn is_update_trouble(cause: &miette::Report) -> bool {
+    cause
+        .downcast_ref::<SilvError>()
+        .is_some_and(|error| matches!(error, SilvError::UpdateUnavailable { .. }))
 }
 
 /// Prints the resolved key map, one `from<TAB>to` line per entry: the `--key-map-show` report.

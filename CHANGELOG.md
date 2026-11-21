@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(update)* Spaced --check output with a changelog header, update line without the leading gap
 - Drop the redundant package.homepage, it equals package.repository
 - *(update)* Harden self-update checks, installs, cargo-managed binary
+- *(update)* Correct release selection, token scope, exit codes
 
 ### Documentation
 
