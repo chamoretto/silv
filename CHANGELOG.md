@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Documentation
 
 - *(update)* Manual update-flow testing against a localhost mock api
+- *(readme)* Installation section, contents links above the preview
 
 ### Testing
 

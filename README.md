@@ -5,6 +5,30 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.88%2B-orange.svg)](https://www.rust-lang.org)
 
+## Contents
+
+- [Preview](#preview)
+- [Little disclaimer](#little-disclaimer)
+- [Description](#description)
+- [Installation](#installation)
+- [Build](#build)
+- [Quick start](#quick-start)
+- [Input](#input)
+- [Memory overhead](#memory-overhead)
+- [Fields](#fields)
+- [Columns and rendering](#columns-and-rendering)
+- [Filtering and search](#filtering-and-search)
+- [Interactive key map](#interactive-key-map)
+- [Colors and output](#colors-and-output)
+- [Mouse and terminal compatibility](#mouse-and-terminal-compatibility)
+- [Exit codes](#exit-codes)
+- [Diagnostics](#diagnostics)
+- [Static binaries (drop-in SFTP deployment)](#static-binaries-drop-in-sftp-deployment)
+- [Self-update](#self-update)
+- [Development](#development)
+- [AI disclosure](#ai-disclosure)
+- [License](#license)
+
 ## Preview
 
 ![interactive table view with a level!=DEBUG filter chip and the sort header focused](docs/images/ui-interactive-sample-jsonl.png)
@@ -29,6 +53,43 @@ Kibana-like layout. Two modes share the same visuals:
 
 Single statically linked binary, drop it on a server over SFTP and run it.
 
+## Installation
+
+Prebuilt static binaries are attached to every [release](https://github.com/chamoretto/silv/releases),
+named `silv-<tag>-<target>[.exe]` (with `SHA256SUMS`):
+
+| Target | Asset |
+| --- | --- |
+| Linux x64, any distro (fully static musl) | `silv-<tag>-x86_64-unknown-linux-musl` |
+| Windows x64 | `silv-<tag>-x86_64-pc-windows-msvc.exe` |
+| Apple silicon | `silv-<tag>-aarch64-apple-darwin` |
+
+```sh
+# unix, user-wide: no sudo, self-update works without privileges
+chmod +x silv-<tag>-x86_64-unknown-linux-musl
+mv silv-<tag>-x86_64-unknown-linux-musl ~/.local/bin/silv    # a folder on your PATH
+
+# unix, system-wide: root-owned like a regular install; updates then need `sudo silv update`
+sudo install -m 0755 silv-<tag>-x86_64-unknown-linux-musl /usr/local/bin/silv
+
+# macOS (apple silicon), user-wide: downloads get the com.apple.quarantine xattr and
+# Gatekeeper blocks the first run; clear it, then install like any unix binary
+xattr -c silv-<tag>-aarch64-apple-darwin
+chmod +x silv-<tag>-aarch64-apple-darwin
+mv silv-<tag>-aarch64-apple-darwin ~/.local/bin/silv
+```
+
+Windows: download the `.exe`, rename it to `silv.exe`, put it in a folder that is on `PATH`.
+
+macOS note: the quarantine tag comes from the browser saving the download, not from the file
+itself - the project is unsigned (no developer id), so a quarantined binary gets blocked on the
+first run until the tag is cleared (`xattr -c`, above). `silv update` writes the new binary
+itself, so updated binaries are never quarantined and need no extra step.
+
+There is no package manager; build from source with
+`cargo install --git https://github.com/chamoretto/silv` or see [Build](#build). Once installed,
+`silv update` keeps it current - see [Self-update](#self-update).
+
 ## Build
 
 ```sh
@@ -37,8 +98,7 @@ scripts/build-release.ps1        # windows release (dist/)
 scripts/build-release.sh         # unix releases (dist/)
 ```
 
-Prebuilt binaries for windows, linux (musl) and apple silicon are attached to each
-[release](https://github.com/chamoretto/silv/releases) (with `SHA256SUMS`).
+Prebuilt binaries are in the [releases](#installation).
 
 Requires Rust stable (edition 2024). All dependencies are pure Rust with exact `=x.y.z` pins, so
 fully static builds work on windows (MSVC CRT static) and linux (musl).
@@ -302,14 +362,21 @@ silv update --repo-url https://github.com/you/silv-fork   # moved repo, renamed 
 
 Set `GITHUB_TOKEN` to raise the api rate limit (unauthenticated checks are limited per IP).
 
+The replace swaps the binary atomically and restores the old file's mode bits, so the result
+stays executable. It needs write permission on the directory containing the binary: a user-owned
+install (`~/.local/bin`) updates without privileges; a root-owned system install
+(`/usr/local/bin`) needs `sudo silv update` - the new file ends up root-owned, `0755`, usable by
+everyone. `sudo` strips the environment, so pass the token through with `sudo -E silv update`.
+In interactive mode a perform failure is reported in the status bar, it never kills the session.
+
 In interactive mode a background check runs at startup. When a newer release exists, a line
 appears at the very bottom: `update available: 0.2.0 -> 0.3.0 (click to update, to disable
-checks use "--no-update" or "SILV_NO_UPDATE=true")` on the
-left, a `changelog` button (the release notes between your version and the newest) on the right.
-Clicking the left button performs the update; the running process keeps the old binary until you
-restart it. When the repository is unreachable (offline, moved, private), silv opens a pop-up
-asking for a repository url - enter it, press Enter, and the check re-runs; the same is available
-from the CLI via `--repo-url`. `u` opens that pop-up at any time.
+checks use "--no-update" or "SILV_NO_UPDATE=true")` on the left, a `changelog` button (the
+release notes between your version and the newest) on the right. Clicking the left button
+performs the update; the running process keeps the old binary until you restart it. When the
+repository is unreachable (offline, moved, private), silv opens a pop-up asking for a repository
+url - enter it, press Enter, and the check re-runs; the same is available from the CLI via
+`--repo-url`. `u` opens that pop-up at any time.
 
 - `--no-update` (flag) or `SILV_NO_UPDATE=true` (env) disables the startup check, the update
   line and the changelog button completely.
