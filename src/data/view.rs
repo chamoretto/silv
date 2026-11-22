@@ -27,9 +27,7 @@ impl View {
     }
 
     pub fn record<'a>(&self, store: &'a LogStore, position: usize) -> Option<&'a crate::model::record::LogRecord> {
-        self.rows
-            .get(position)
-            .and_then(|index| store.record_of(*index))
+        self.rows.get(position).and_then(|index| store.record_of(*index))
     }
 }
 

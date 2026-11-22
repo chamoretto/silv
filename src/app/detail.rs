@@ -34,7 +34,7 @@ const FOOTER: &str =
 
 /// Draws the full screen detail of the selected record.
 pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
-    let Some(detail) = state.detail.as_ref() else {
+    let Some(detail) = state.overlays.detail.as_ref() else {
         return;
     };
     let record_line = state
@@ -132,16 +132,10 @@ fn draw_fields(frame: &mut Frame, state: &AppState, detail: &DetailState, area: 
     let _ = state;
 
     frame.render_stateful_widget(
-        Table::new(
-            rows,
-            [
-                Constraint::Length(u16_len(label_width)),
-                Constraint::Fill(1),
-            ],
-        )
-        .column_spacing(2)
-        .highlight_symbol("")
-        .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+        Table::new(rows, [Constraint::Length(u16_len(label_width)), Constraint::Fill(1)])
+            .column_spacing(2)
+            .highlight_symbol("")
+            .row_highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
         area,
         &mut table_state,
     );

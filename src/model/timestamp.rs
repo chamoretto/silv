@@ -408,7 +408,16 @@ mod tests {
 
     #[test]
     fn time_format_tokens_roundtrip() {
-        for token in ["utc", "local", "time-utc", "time-local", "rfc3339", "epoch", "raw", "none"] {
+        for token in [
+            "utc",
+            "local",
+            "time-utc",
+            "time-local",
+            "rfc3339",
+            "epoch",
+            "raw",
+            "none",
+        ] {
             let parsed: TimeFormat = token.parse().expect("accepted token");
             assert_eq!(parsed.to_string(), token);
         }

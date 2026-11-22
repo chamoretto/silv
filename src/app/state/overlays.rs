@@ -78,8 +78,8 @@ impl AppState {
         };
         let fields = detail_fields(&record, &self.config);
         let json_text = detail_json_lines(&record);
-        self.detail = Some(DetailState {
-            row: self.cursor,
+        self.overlays.detail = Some(DetailState {
+            row: self.nav.cursor,
             fields,
             cursor: 0,
             scroll: 0,
@@ -91,12 +91,12 @@ impl AppState {
     }
 
     pub fn close_detail(&mut self) {
-        self.detail = None;
+        self.overlays.detail = None;
         self.dirty = true;
     }
 
     pub fn detail_move(&mut self, delta: isize) {
-        let Some(detail) = self.detail.as_mut() else {
+        let Some(detail) = self.overlays.detail.as_mut() else {
             return;
         };
         if let Some(menu) = detail.menu.as_mut() {
@@ -114,14 +114,14 @@ impl AppState {
     }
 
     pub fn detail_toggle_json(&mut self) {
-        if let Some(detail) = self.detail.as_mut() {
+        if let Some(detail) = self.overlays.detail.as_mut() {
             detail.json = !detail.json;
             self.dirty = true;
         }
     }
 
     pub fn detail_open_menu(&mut self) {
-        if let Some(detail) = self.detail.as_mut()
+        if let Some(detail) = self.overlays.detail.as_mut()
             && !detail.json
         {
             detail.menu = Some(0);
@@ -130,13 +130,15 @@ impl AppState {
     }
 
     pub fn detail_selected_field(&self) -> Option<&DetailField> {
-        let detail = self.detail.as_ref()?;
+        let detail = self.overlays.detail.as_ref()?;
         detail.fields.get(detail.cursor)
     }
 
     /// Applies the focused menu action to the focused field.
     pub fn detail_apply_menu(&mut self) {
-        let (Some(detail), Some(menu)) = (self.detail.clone(), self.detail.as_ref().and_then(|d| d.menu)) else {
+        let (Some(detail), Some(menu)) =
+            (self.overlays.detail.clone(), self.overlays.detail.as_ref().and_then(|d| d.menu))
+        else {
             return;
         };
         let Some(action) = MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1)) else {
@@ -152,7 +154,7 @@ impl AppState {
             self.message = Some(format!("cannot use `{label}` as a field path"));
             return;
         };
-        if let Some(detail) = self.detail.as_mut() {
+        if let Some(detail) = self.overlays.detail.as_mut() {
             detail.menu = None;
         }
         match action {
@@ -190,7 +192,7 @@ impl AppState {
             })
             .collect();
         let matches: Vec<usize> = (0..fields.len()).collect();
-        self.picker = Some(PickerState {
+        self.overlays.picker = Some(PickerState {
             fields,
             matches,
             cursor: 0,
@@ -201,17 +203,18 @@ impl AppState {
     }
 
     pub fn close_picker(&mut self) {
-        self.picker = None;
+        self.overlays.picker = None;
         self.dirty = true;
     }
 
     pub fn picker_filter(&mut self) {
         let needle = self
+            .overlays
             .picker
             .as_ref()
             .map(|picker| picker.input.text().to_lowercase())
             .unwrap_or_default();
-        if let Some(picker) = self.picker.as_mut() {
+        if let Some(picker) = self.overlays.picker.as_mut() {
             picker.matches = (0..picker.fields.len())
                 .filter(|index| picker.fields[*index].label.to_lowercase().contains(&needle))
                 .collect();
@@ -223,11 +226,12 @@ impl AppState {
     }
 
     pub fn picker_toggle(&mut self) {
-        let index = match self.picker.as_ref().and_then(|p| p.matches.get(p.cursor)) {
+        let index = match self.overlays.picker.as_ref().and_then(|p| p.matches.get(p.cursor)) {
             Some(index) => *index,
             None => return,
         };
         let path = match self
+            .overlays
             .picker
             .as_ref()
             .and_then(|p| p.fields.get(index))
@@ -238,7 +242,7 @@ impl AppState {
         };
         self.toggle_column(path.clone());
         let contains = self.columns_contain(&path);
-        if let Some(picker) = self.picker.as_mut()
+        if let Some(picker) = self.overlays.picker.as_mut()
             && let Some(field) = picker.fields.get_mut(index)
         {
             field.selected = contains;
@@ -246,7 +250,7 @@ impl AppState {
     }
 
     pub fn picker_move(&mut self, delta: isize) {
-        let Some(picker) = self.picker.as_mut() else {
+        let Some(picker) = self.overlays.picker.as_mut() else {
             return;
         };
         if picker.matches.is_empty() {
@@ -264,7 +268,12 @@ impl AppState {
             KeyCode::PageDown => self.detail_move(isize::try_from(self.page_height()).unwrap_or(1)),
             KeyCode::PageUp => self.detail_move(-isize::try_from(self.page_height()).unwrap_or(1)),
             KeyCode::Enter => {
-                if self.detail.as_ref().is_some_and(|detail| detail.menu.is_some()) {
+                if self
+                    .overlays
+                    .detail
+                    .as_ref()
+                    .is_some_and(|detail| detail.menu.is_some())
+                {
                     self.detail_apply_menu();
                 } else {
                     self.detail_open_menu();
@@ -284,7 +293,7 @@ impl AppState {
     }
 
     pub(super) fn detail_apply_menu_action(&mut self, action: MenuAction) {
-        let target = self.detail.as_ref().map(|detail| detail.menu).unwrap_or(None);
+        let target = self.overlays.detail.as_ref().map(|detail| detail.menu).unwrap_or(None);
         if target.is_some() {
             self.detail_apply_menu();
             return;
@@ -324,14 +333,14 @@ impl AppState {
             KeyCode::Char(' ') => self.picker_toggle(),
             KeyCode::Char(_) => {
                 if let Some(ch) = key.typed_char() {
-                    if let Some(picker) = self.picker.as_mut() {
+                    if let Some(picker) = self.overlays.picker.as_mut() {
                         picker.input.insert(ch);
                     }
                     self.picker_filter();
                 }
             },
             KeyCode::Backspace => {
-                if let Some(picker) = self.picker.as_mut() {
+                if let Some(picker) = self.overlays.picker.as_mut() {
                     picker.input.backspace();
                 }
                 self.picker_filter();
@@ -399,4 +408,3 @@ pub fn detail_json_lines(record: &crate::model::record::LogRecord) -> Vec<String
     let text: String = cells.iter().map(|cell: &Cell| cell.text.as_str()).collect();
     text.lines().map(str::to_owned).collect()
 }
-

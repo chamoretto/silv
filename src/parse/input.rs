@@ -177,10 +177,7 @@ fn collect_directory(dir: &Path, config: &Config, out: &mut Vec<PathBuf>) -> Res
 fn read_file(path: &Path) -> Result<RawSource> {
     let label = path.display().to_string();
     let file = File::open(path).map_err(|cause| read_err(label.clone(), cause))?;
-    let size = file
-        .metadata()
-        .map_err(|cause| read_err(label.clone(), cause))?
-        .len();
+    let size = file.metadata().map_err(|cause| read_err(label.clone(), cause))?.len();
     let data = if size >= MMAP_THRESHOLD {
         let map = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|cause| read_err(label.clone(), cause))?;
         SourceData::Mapped(map)

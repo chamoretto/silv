@@ -116,76 +116,113 @@ impl Focus {
     }
 }
 
+/// Row, header and chip navigation: focus, modes, cursors, scrolls.
+pub struct Navigator {
+    pub focus: Focus,
+    pub header_mode: HeaderMode,
+    pub row_mode: RowMode,
+    pub cursor: usize,
+    pub header_cursor: usize,
+    pub filter_cursor: usize,
+    pub pick_cursor: usize,
+    pub column_scroll: usize,
+    pub rows_scroll: usize,
+}
+
+/// The query pipeline: filters with undo history, sorts, search and the input lines.
+pub struct QueryState {
+    pub filters: Vec<Predicate>,
+    /// Filter lists for Ctrl+Z: each entry is the list as it was before a change.
+    filter_undo: Vec<Vec<Predicate>>,
+    /// Filter lists for Ctrl+Shift+Z: each entry is a list taken over by undo.
+    filter_redo: Vec<Vec<Predicate>>,
+    pub sorts: Vec<SortSpec>,
+    pub sort_marks: Vec<(String, SortDir)>,
+    pub search: SearchSpec,
+    pub search_input: Editor,
+    pub filter_input: Editor,
+    pub regexes: Vec<regex::Regex>,
+}
+
+/// Open pop-ups: record detail, column picker, filter wizard, help.
+pub struct Overlays {
+    pub detail: Option<DetailState>,
+    pub picker: Option<PickerState>,
+    pub wizard: Option<FilterWizard>,
+    pub help: bool,
+}
+
+/// The resolved keymap, the mode it was resolved for, and the remaining layout probes.
+pub struct KeymapState {
+    /// Layout character to QWERTY position, resolved from `config.key_map`.
+    pub map: KeyMap,
+    /// Mode the current map was resolved for, so a mode change re-resolves it.
+    mode: KeyMapMode,
+    /// Rebuilds left: a layout switch mid-session is probed a few times, then left alone.
+    rebuilds: u8,
+}
+
+/// Screen areas and hit cells recorded while drawing, for mouse hit testing.
+#[derive(Clone, Debug, Default)]
+pub struct Geometry {
+    pub areas: Areas,
+    pub header_cells: Vec<(u16, u16, usize)>,
+    pub chip_cells: Vec<(u16, u16, usize, u16)>,
+}
+
+/// The interactive self-update: worker channel, repository, release notes, overlays, buttons.
+pub struct UpdateState {
+    /// Release repository of the interactive update check (default repo, overridable).
+    pub repo: RepoRef,
+    /// Newest releases newer than the running version, newest first; the button appears
+    /// on the update line when this is non-empty.
+    pub available: Option<Vec<ReleaseNote>>,
+    /// Bumped on every spawned check; events from an older generation are stale
+    /// (a repository url was submitted while the old check was in flight) and get dropped.
+    pub(crate) check_generation: u64,
+    /// The update download/replace is in flight.
+    pub updating: bool,
+    /// A quit was refused once because an update is in flight; the second press quits.
+    /// Quitting mid-replace can truncate the binary (Windows replaces the file in place).
+    pub(crate) quit_confirm_pending: bool,
+    /// Open changelog overlay (delta between the running and the newest version).
+    pub changelog: Option<ChangelogState>,
+    /// Open pop-up asking for a repository url (unreachable repo, forks).
+    pub repo_prompt: Option<RepoPrompt>,
+    /// Hit rects of the update line buttons, recorded while drawing.
+    pub btn_rect: Rect,
+    pub changelog_btn: Rect,
+    /// While the update line is focused: 0 = the update button, 1 = the changelog button.
+    pub focus_index: usize,
+    /// The binary is a `cargo install` artifact (it sits in the cargo bin dir): the update
+    /// line tells the user to update through cargo, since a self-update desyncs cargo's list.
+    pub cargo_managed: bool,
+    /// Update worker events; `run_loop` drains them via `poll_update_events`.
+    pub events: (std::sync::mpsc::Sender<UpdateEvent>, std::sync::mpsc::Receiver<UpdateEvent>),
+}
+
 /// The whole interactive session state.
 pub struct AppState {
     pub store: Store,
     pub config: Config,
     pub view: View,
     pub columns: Vec<Column>,
-    pub sorts: Vec<SortSpec>,
-    pub filters: Vec<Predicate>,
-    pub search: SearchSpec,
-    pub search_input: Editor,
-    pub filter_input: Editor,
-    pub focus: Focus,
-    pub header_mode: HeaderMode,
-    pub row_mode: RowMode,
-    pub pick_cursor: usize,
-    pub cursor: usize,
-    pub header_cursor: usize,
-    pub filter_cursor: usize,
-    pub column_scroll: usize,
-    pub rows_scroll: usize,
-    pub detail: Option<DetailState>,
-    pub picker: Option<PickerState>,
-    pub wizard: Option<FilterWizard>,
-    pub help: bool,
     pub message: Option<String>,
     pub status: String,
-    pub sort_marks: Vec<(String, SortDir)>,
-    pub areas: Areas,
-    pub header_cells: Vec<(u16, u16, usize)>,
-    pub chip_cells: Vec<(u16, u16, usize, u16)>,
-    pub regexes: Vec<regex::Regex>,
-    /// Layout character to QWERTY position, resolved from `config.key_map`.
-    pub keymap: KeyMap,
-    /// Mode the current map was resolved for, so a mode change re-resolves it.
-    keymap_mode: KeyMapMode,
-    /// Rebuilds left: a layout switch mid-session is probed a few times, then left alone.
-    keymap_rebuilds: u8,
-    /// Filter lists for Ctrl+Z: each entry is the list as it was before a change.
-    filter_undo: Vec<Vec<Predicate>>,
-    /// Filter lists for Ctrl+Shift+Z: each entry is a list taken over by undo.
-    filter_redo: Vec<Vec<Predicate>>,
-    /// Release repository of the interactive update check (default repo, overridable).
-    pub update_repo: RepoRef,
-    /// Newest releases newer than the running version, newest first; the button appears
-    /// on the update line when this is non-empty.
-    pub update_available: Option<Vec<ReleaseNote>>,
-    /// Bumped on every spawned check; events from an older generation are stale
-    /// (a repository url was submitted while the old check was in flight) and get dropped.
-    update_check_generation: u64,
-    /// The update download/replace is in flight.
-    pub updating: bool,
-    /// A quit was refused once because an update is in flight; the second press quits.
-    /// Quitting mid-replace can truncate the binary (Windows replaces the file in place).
-    quit_confirm_pending: bool,
-    /// Open changelog overlay (delta between the running and the newest version).
-    pub changelog: Option<ChangelogState>,
-    /// Open pop-up asking for a repository url (unreachable repo, forks).
-    pub repo_prompt: Option<RepoPrompt>,
-    /// Hit rects of the update line buttons, recorded while drawing.
-    pub update_btn: Rect,
-    pub changelog_btn: Rect,
-    /// While the update line is focused: 0 = the update button, 1 = the changelog button.
-    pub update_focus_index: usize,
-    /// The binary is a `cargo install` artifact (it sits in the cargo bin dir): the update
-    /// line tells the user to update through cargo, since a self-update desyncs cargo's list.
-    pub update_cargo_managed: bool,
-    /// Update worker events; `run_loop` drains them via `poll_update_events`.
-    pub update_events: (std::sync::mpsc::Sender<UpdateEvent>, std::sync::mpsc::Receiver<UpdateEvent>),
     pub dirty: bool,
     pub quit: bool,
+    /// Focus, modes, cursors, scrolls.
+    pub nav: Navigator,
+    /// Filters, sorts, search and their inputs.
+    pub query: QueryState,
+    /// Open pop-ups.
+    pub overlays: Overlays,
+    /// Resolved keymap and its probe budget.
+    pub keymap: KeymapState,
+    /// Areas and hit cells recorded while drawing.
+    pub geometry: Geometry,
+    /// The interactive self-update.
+    pub update: UpdateState,
 }
 
 /// Live rebuilds are skipped above this many records; Enter forces one.
@@ -210,50 +247,58 @@ impl AppState {
             store,
             view: View::default(),
             columns,
-            sorts,
-            filters,
-            search,
-            search_input,
-            filter_input: Editor::new(),
-            focus: Focus::Rows,
-            header_mode: HeaderMode::Navigate,
-            row_mode: RowMode::Normal,
-            pick_cursor: 0,
-            cursor: 0,
-            header_cursor: 0,
-            filter_cursor: 0,
-            column_scroll: 0,
-            rows_scroll: 0,
-            detail: None,
-            picker: None,
-            wizard: None,
-            help: false,
             message: None,
             status: String::new(),
-            sort_marks: Vec::new(),
-            areas: Areas::default(),
-            header_cells: Vec::new(),
-            chip_cells: Vec::new(),
-            regexes: Vec::new(),
-            keymap,
-            keymap_mode,
-            keymap_rebuilds: KEYMAP_REBUILDS,
-            filter_undo: Vec::new(),
-            filter_redo: Vec::new(),
-            update_repo: config.update_repo.clone().unwrap_or_else(RepoRef::default_repo),
-            update_available: None,
-            quit_confirm_pending: false,
-            update_check_generation: 0,
-            updating: false,
-            changelog: None,
-            repo_prompt: None,
-            update_btn: Rect::default(),
-            changelog_btn: Rect::default(),
-            update_focus_index: 0,
-            update_cargo_managed: crate::update::cargo_managed_install(),
-            update_events: std::sync::mpsc::channel(),
             dirty: true,
             quit: false,
+            nav: Navigator {
+                focus: Focus::Rows,
+                header_mode: HeaderMode::Navigate,
+                row_mode: RowMode::Normal,
+                cursor: 0,
+                header_cursor: 0,
+                filter_cursor: 0,
+                pick_cursor: 0,
+                column_scroll: 0,
+                rows_scroll: 0,
+            },
+            query: QueryState {
+                filters,
+                filter_undo: Vec::new(),
+                filter_redo: Vec::new(),
+                sorts,
+                sort_marks: Vec::new(),
+                search,
+                search_input,
+                filter_input: Editor::new(),
+                regexes: Vec::new(),
+            },
+            overlays: Overlays {
+                detail: None,
+                picker: None,
+                wizard: None,
+                help: false,
+            },
+            keymap: KeymapState {
+                map: keymap,
+                mode: keymap_mode,
+                rebuilds: KEYMAP_REBUILDS,
+            },
+            geometry: Geometry::default(),
+            update: UpdateState {
+                repo: config.update_repo.clone().unwrap_or_else(RepoRef::default_repo),
+                available: None,
+                check_generation: 0,
+                updating: false,
+                quit_confirm_pending: false,
+                changelog: None,
+                repo_prompt: None,
+                btn_rect: Rect::default(),
+                changelog_btn: Rect::default(),
+                focus_index: 0,
+                cargo_managed: crate::update::cargo_managed_install(),
+                events: std::sync::mpsc::channel(),
+            },
             config,
         };
         state.rebuild();
@@ -262,10 +307,10 @@ impl AppState {
 
     /// Recomputes the visible rows after any filter, search or sort change.
     pub fn rebuild(&mut self) {
-        let search_predicate = if self.search.is_empty() {
+        let search_predicate = if self.query.search.is_empty() {
             None
         } else {
-            match self.search.compile() {
+            match self.query.search.compile() {
                 Ok(predicate) => Some(predicate),
                 Err(error) => {
                     self.message = Some(format!("search: {}", error));
@@ -275,33 +320,34 @@ impl AppState {
         };
         self.view = build_view(
             &self.store,
-            &self.filters,
+            &self.query.filters,
             search_predicate.as_ref(),
-            &self.sorts,
+            &self.query.sorts,
             self.config.offset,
             self.config.limit,
             self.config.tail,
         );
-        self.regexes = self.search.highlight_regexes();
-        clamp_cursor(&mut self.cursor, self.view.len());
-        self.rows_scroll = self.rows_scroll.min(self.view.len());
-        clamp_cursor(&mut self.header_cursor, self.columns.len());
-        clamp_cursor(&mut self.filter_cursor, self.filters.len());
+        self.query.regexes = self.query.search.highlight_regexes();
+        clamp_cursor(&mut self.nav.cursor, self.view.len());
+        self.nav.rows_scroll = self.nav.rows_scroll.min(self.view.len());
+        clamp_cursor(&mut self.nav.header_cursor, self.columns.len());
+        clamp_cursor(&mut self.nav.filter_cursor, self.query.filters.len());
         self.update_status();
     }
 
     fn update_status(&mut self) {
         let shown = self.view.len();
         let total = self.store.len();
-        self.sort_marks = self
+        self.query.sort_marks = self
+            .query
             .sorts
             .iter()
             .map(|spec| (spec.field.to_string(), spec.dir))
             .collect();
-        let focus_label = if self.focus == Focus::Header && self.header_mode == HeaderMode::Drag {
+        let focus_label = if self.nav.focus == Focus::Header && self.nav.header_mode == HeaderMode::Drag {
             "fields (drag)"
         } else {
-            self.focus.label()
+            self.nav.focus.label()
         };
         self.status = format!(
             "rows {shown}/{} of {total} | fields {} | focus {focus_label} | {}",
@@ -326,7 +372,7 @@ impl AppState {
     }
 
     pub fn current_record(&self) -> Option<&crate::model::record::LogRecord> {
-        self.record_at(self.cursor)
+        self.record_at(self.nav.cursor)
     }
 
     pub fn source_label(&self, record: &crate::model::record::LogRecord) -> &str {
@@ -343,7 +389,7 @@ impl AppState {
             self.columns.push(column);
             self.message = Some(format!("column added: {label}"));
         }
-        clamp_cursor(&mut self.header_cursor, self.columns.len());
+        clamp_cursor(&mut self.nav.header_cursor, self.columns.len());
         self.update_status();
         self.dirty = true;
     }
@@ -358,19 +404,20 @@ impl AppState {
         let label = column.label();
         let path = FieldPath::parse(&label).unwrap_or_else(|_| FieldPath::from_key(&label));
         let position = self
+            .query
             .sorts
             .iter()
             .position(|spec| Column::from_path(&spec.field) == *column);
         match position {
-            Some(index) => match self.sorts[index].dir {
-                SortDir::Asc => self.sorts[index].dir = SortDir::Desc,
+            Some(index) => match self.query.sorts[index].dir {
+                SortDir::Asc => self.query.sorts[index].dir = SortDir::Desc,
                 SortDir::Desc => {
-                    self.sorts.remove(index);
+                    self.query.sorts.remove(index);
                     self.message = Some(format!("sort cleared: {label}"));
                 },
             },
             None => {
-                self.sorts.push(SortSpec {
+                self.query.sorts.push(SortSpec {
                     field: path,
                     dir: SortDir::Asc,
                 });
@@ -381,26 +428,27 @@ impl AppState {
     }
 
     pub fn sort_of(&self, column: &Column) -> Option<SortDir> {
-        self.sorts
+        self.query
+            .sorts
             .iter()
             .find(|spec| Column::from_path(&spec.field) == *column)
             .map(|spec| spec.dir)
     }
 
     pub fn enter_column_drag(&mut self) {
-        if self.header_mode == HeaderMode::Drag {
+        if self.nav.header_mode == HeaderMode::Drag {
             return;
         }
-        self.header_mode = HeaderMode::Drag;
+        self.nav.header_mode = HeaderMode::Drag;
         self.update_status();
         self.say("column drag: Left/Right move column, Enter/click sorts, Space/Esc leaves");
     }
 
     pub fn leave_column_drag(&mut self) {
-        if self.header_mode == HeaderMode::Navigate {
+        if self.nav.header_mode == HeaderMode::Navigate {
             return;
         }
-        self.header_mode = HeaderMode::Navigate;
+        self.nav.header_mode = HeaderMode::Navigate;
         self.update_status();
         self.dirty = true;
     }
@@ -410,37 +458,37 @@ impl AppState {
         if self.columns.is_empty() {
             return;
         }
-        let from = self.header_cursor;
+        let from = self.nav.header_cursor;
         let to = (from as isize + delta).clamp(0, self.columns.len() as isize - 1) as usize;
         if to == from {
             return;
         }
         let label = self.columns[from].label();
         self.columns.swap(from, to);
-        self.header_cursor = to;
+        self.nav.header_cursor = to;
         self.say(format!("column moved: {label} -> {}", to + 1));
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
         if self.view.is_empty() {
-            self.cursor = 0;
+            self.nav.cursor = 0;
             return;
         }
-        clamp_move(&mut self.cursor, self.view.len(), delta);
+        clamp_move(&mut self.nav.cursor, self.view.len(), delta);
     }
 
     /// Wheel scrolling, overlay-aware: three lines per notch in the active layer.
     /// The repository pop-up owns the screen: wheel there is inert.
     pub fn wheel(&mut self, notches: isize) {
-        if self.repo_prompt.is_some() {
+        if self.update.repo_prompt.is_some() {
             return;
         }
         let delta = notches.saturating_mul(3);
-        if self.changelog.is_some() {
+        if self.update.changelog.is_some() {
             self.changelog_move(delta);
-        } else if self.detail.is_some() {
+        } else if self.overlays.detail.is_some() {
             self.detail_move(delta);
-        } else if self.picker.is_some() {
+        } else if self.overlays.picker.is_some() {
             self.picker_move(delta);
         } else {
             self.move_cursor(delta);
@@ -448,11 +496,11 @@ impl AppState {
     }
 
     pub fn go_first(&mut self) {
-        self.cursor = 0;
+        self.nav.cursor = 0;
     }
 
     pub fn go_last(&mut self) {
-        self.cursor = self.view.len().saturating_sub(1);
+        self.nav.cursor = self.view.len().saturating_sub(1);
     }
 
     pub fn page(&mut self, direction: isize, page: usize) {
@@ -473,7 +521,7 @@ impl AppState {
     }
 
     pub fn focused_column(&self) -> Option<&Column> {
-        self.columns.get(self.header_cursor)
+        self.columns.get(self.nav.header_cursor)
     }
 
     pub fn cycle_focus(&mut self, direction: isize) {
@@ -482,22 +530,22 @@ impl AppState {
         let order: Vec<Focus> = Focus::iter()
             .filter(|focus| *focus != Focus::UpdateLine || self.update_line_visible())
             .collect();
-        if order.iter().all(|focus| *focus != self.focus) {
-            self.focus = Focus::Rows;
+        if order.iter().all(|focus| *focus != self.nav.focus) {
+            self.nav.focus = Focus::Rows;
         }
         let len = isize::try_from(order.len()).unwrap_or(isize::MAX);
-        let current = order.iter().position(|f| *f == self.focus).unwrap_or(0);
+        let current = order.iter().position(|f| *f == self.nav.focus).unwrap_or(0);
         let current = isize::try_from(current).unwrap_or(0);
         let next = (current + direction).rem_euclid(len);
-        self.focus = order[usize::try_from(next).unwrap_or(0)];
+        self.nav.focus = order[usize::try_from(next).unwrap_or(0)];
         self.update_status();
     }
 
     pub fn quit(&mut self) {
-        if self.updating && !self.quit_confirm_pending {
+        if self.update.updating && !self.update.quit_confirm_pending {
             // The self-replace is in flight: killing the process now can truncate the
             // binary (Windows renames the running file, then writes the new one).
-            self.quit_confirm_pending = true;
+            self.update.quit_confirm_pending = true;
             self.say("update: an update is in progress, press q again to quit anyway");
             return;
         }
@@ -506,15 +554,15 @@ impl AppState {
 
     /// Resolves the key map, re-probing when the mode changed or the layout switched.
     fn keymap_press(&mut self, code: KeyCode, modifiers: KeyModifiers) -> KeyPress {
-        if self.keymap_mode != self.config.key_map {
-            self.keymap_mode = self.config.key_map.clone();
-            self.keymap = KeyMap::resolve(&self.config.key_map);
+        if self.keymap.mode != self.config.key_map {
+            self.keymap.mode = self.config.key_map.clone();
+            self.keymap.map = KeyMap::resolve(&self.config.key_map);
         }
-        let mut key = KeyPress::new(code, modifiers, &self.keymap);
-        if key.needs_rebuild() && self.keymap_rebuilds > 0 {
-            self.keymap_rebuilds -= 1;
-            self.keymap = KeyMap::resolve(&self.config.key_map);
-            key = KeyPress::new(code, modifiers, &self.keymap);
+        let mut key = KeyPress::new(code, modifiers, &self.keymap.map);
+        if key.needs_rebuild() && self.keymap.rebuilds > 0 {
+            self.keymap.rebuilds -= 1;
+            self.keymap.map = KeyMap::resolve(&self.config.key_map);
+            key = KeyPress::new(code, modifiers, &self.keymap.map);
         }
         key
     }
@@ -542,46 +590,46 @@ impl AppState {
                 _ => {},
             }
         }
-        if self.help {
+        if self.overlays.help {
             match key.bind {
-                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.help = false,
+                KeyCode::Esc | KeyCode::Char('?') | KeyCode::Char('q') => self.overlays.help = false,
                 _ => {},
             }
             self.dirty = true;
             return;
         }
-        if self.repo_prompt.is_some() {
+        if self.update.repo_prompt.is_some() {
             self.handle_repo_prompt_key(key);
             self.dirty = true;
             return;
         }
-        if self.changelog.is_some() {
+        if self.update.changelog.is_some() {
             self.handle_changelog_key(key);
             self.dirty = true;
             return;
         }
-        if self.picker.is_some() {
+        if self.overlays.picker.is_some() {
             self.handle_picker_key(key);
             self.dirty = true;
             return;
         }
-        if self.detail.is_some() {
+        if self.overlays.detail.is_some() {
             self.handle_detail_key(key);
             self.dirty = true;
             return;
         }
         match key.bind {
             KeyCode::Char('?') => {
-                self.help = true;
+                self.overlays.help = true;
                 return;
             },
-            KeyCode::Char('c') if !self.focus_is_text() && self.focus != Focus::UpdateLine => {
+            KeyCode::Char('c') if !self.focus_is_text() && self.nav.focus != Focus::UpdateLine => {
                 self.open_picker();
                 return;
             },
             _ => {},
         }
-        match self.focus {
+        match self.nav.focus {
             Focus::Search => self.handle_search_key(key),
             Focus::FilterInput => self.handle_filter_key(key),
             Focus::FilterChips => self.handle_chips_key(key),
@@ -593,24 +641,24 @@ impl AppState {
     }
 
     const fn focus_is_text(&self) -> bool {
-        matches!(self.focus, Focus::Search | Focus::FilterInput)
+        matches!(self.nav.focus, Focus::Search | Focus::FilterInput)
     }
 
     fn handle_header_key(&mut self, key: KeyPress) {
-        let dragging = self.header_mode == HeaderMode::Drag;
+        let dragging = self.nav.header_mode == HeaderMode::Drag;
         match key.bind {
             KeyCode::Left | KeyCode::Char('h') => {
                 if dragging {
                     self.move_column(-1);
                 } else {
-                    clamp_move(&mut self.header_cursor, self.columns.len(), -1);
+                    clamp_move(&mut self.nav.header_cursor, self.columns.len(), -1);
                 }
             },
             KeyCode::Right | KeyCode::Char('l') => {
                 if dragging {
                     self.move_column(1);
                 } else {
-                    clamp_move(&mut self.header_cursor, self.columns.len(), 1);
+                    clamp_move(&mut self.nav.header_cursor, self.columns.len(), 1);
                 }
             },
             KeyCode::Enter | KeyCode::Char('s') => {
@@ -628,9 +676,9 @@ impl AppState {
             },
             KeyCode::Char('d') => {
                 if let Some(column) = self.focused_column().cloned() {
-                    self.columns.remove(self.header_cursor);
+                    self.columns.remove(self.nav.header_cursor);
                     self.message = Some(format!("column removed: {}", column.label()));
-                    clamp_cursor(&mut self.header_cursor, self.columns.len());
+                    clamp_cursor(&mut self.nav.header_cursor, self.columns.len());
                     self.update_status();
                 }
             },
@@ -638,18 +686,18 @@ impl AppState {
                 if dragging {
                     self.leave_column_drag();
                 } else {
-                    self.focus = Focus::Rows;
+                    self.nav.focus = Focus::Rows;
                 }
             },
             KeyCode::Tab => self.cycle_focus(1),
             KeyCode::BackTab => self.cycle_focus(-1),
-            KeyCode::Down | KeyCode::Char('j') => self.focus = Focus::Rows,
+            KeyCode::Down | KeyCode::Char('j') => self.nav.focus = Focus::Rows,
             _ => {},
         }
     }
 
     fn handle_rows_key(&mut self, key: KeyPress) {
-        let picking = self.row_mode == RowMode::Pick;
+        let picking = self.nav.row_mode == RowMode::Pick;
         match key.bind {
             KeyCode::Char('q') => self.quit(),
             KeyCode::Char('j') | KeyCode::Down => self.move_cursor(1),
@@ -673,7 +721,7 @@ impl AppState {
                     self.cycle_sort(&column);
                 }
             },
-            KeyCode::Char('S') => self.focus = Focus::Header,
+            KeyCode::Char('S') => self.nav.focus = Focus::Header,
             KeyCode::Char('t') => {
                 self.toggle_column(FieldPath::parse("@timestamp").unwrap_or_else(|_| FieldPath::from_key("@timestamp")))
             },
@@ -685,34 +733,34 @@ impl AppState {
             KeyCode::Char('A') => self.toggle_scope(),
             KeyCode::Char('v') => self.cycle_render(),
             KeyCode::Char('x') => self.clear_search(),
-            KeyCode::Char('d') => self.remove_filter(self.filter_cursor),
+            KeyCode::Char('d') => self.remove_filter(self.nav.filter_cursor),
             KeyCode::Char('X') => self.clear_filters(),
             KeyCode::Left => {
                 if picking {
-                    clamp_move(&mut self.pick_cursor, self.columns.len(), -1);
+                    clamp_move(&mut self.nav.pick_cursor, self.columns.len(), -1);
                 } else {
-                    self.column_scroll = self.column_scroll.saturating_sub(1);
+                    self.nav.column_scroll = self.nav.column_scroll.saturating_sub(1);
                 }
             },
             KeyCode::Right => {
                 if picking {
-                    clamp_move(&mut self.pick_cursor, self.columns.len(), 1);
+                    clamp_move(&mut self.nav.pick_cursor, self.columns.len(), 1);
                 } else {
-                    self.column_scroll = (self.column_scroll + 1).min(self.columns.len().saturating_sub(1));
+                    self.nav.column_scroll = (self.nav.column_scroll + 1).min(self.columns.len().saturating_sub(1));
                 }
             },
             KeyCode::Esc => {
                 if picking {
-                    self.row_mode = RowMode::Normal;
-                } else if !self.search.patterns.is_empty() {
+                    self.nav.row_mode = RowMode::Normal;
+                } else if !self.query.search.patterns.is_empty() {
                     self.clear_search();
-                } else if !self.filters.is_empty() {
-                    self.focus = Focus::FilterChips;
+                } else if !self.query.filters.is_empty() {
+                    self.nav.focus = Focus::FilterChips;
                 }
             },
             KeyCode::Tab => self.cycle_focus(1),
             KeyCode::BackTab => self.cycle_focus(-1),
-            KeyCode::Char('/') => self.focus = Focus::Search,
+            KeyCode::Char('/') => self.nav.focus = Focus::Search,
             KeyCode::Char('F') => self.open_filter_wizard(),
             KeyCode::Char('u') if !self.config.no_update => self.open_repo_prompt(),
             _ => {},
@@ -721,20 +769,20 @@ impl AppState {
 
     /// Space on rows: toggle the value picker; Enter on a cell starts a filter on that value.
     pub fn toggle_row_pick(&mut self) {
-        if self.row_mode == RowMode::Pick {
-            self.row_mode = RowMode::Normal;
+        if self.nav.row_mode == RowMode::Pick {
+            self.nav.row_mode = RowMode::Normal;
         } else if self.columns.is_empty() {
             self.message = Some("pick value needs columns: press c to pick fields".to_owned());
         } else {
-            self.row_mode = RowMode::Pick;
-            self.pick_cursor = self.header_cursor.min(self.columns.len() - 1);
+            self.nav.row_mode = RowMode::Pick;
+            self.nav.pick_cursor = self.nav.header_cursor.min(self.columns.len() - 1);
         }
         self.dirty = true;
     }
 
     /// Opens the filter wizard on the operator step, field and value taken from the picked cell.
     pub fn pick_apply(&mut self) {
-        let Some(column) = self.columns.get(self.pick_cursor).cloned() else {
+        let Some(column) = self.columns.get(self.nav.pick_cursor).cloned() else {
             return;
         };
         let Some(record) = self.current_record().cloned() else {
@@ -744,8 +792,8 @@ impl AppState {
         let (value, _style) = cell_text(&record, &column, &source, &self.config);
         let path = column_path(&column);
         let probe = truncate_probe(&value);
-        self.row_mode = RowMode::Normal;
-        self.wizard = Some(FilterWizard {
+        self.nav.row_mode = RowMode::Normal;
+        self.overlays.wizard = Some(FilterWizard {
             phase: WizardPhase::Operator,
             field: Some(path.clone()),
             op: None,
@@ -753,21 +801,21 @@ impl AppState {
             cursor: 0,
             prefill: Some(probe.clone()),
         });
-        self.filter_input.set(&path.to_string());
-        self.focus = Focus::FilterInput;
+        self.query.filter_input.set(&path.to_string());
+        self.nav.focus = Focus::FilterInput;
         self.say(format!("filter by value: {path} = {probe}, choose the operator"));
     }
 
     /// Mode-aware control keys shown on the prompt line; `[...]` marks key tokens.
     pub fn prompts_text(&self) -> &'static str {
-        match self.focus {
-            Focus::Header if self.header_mode == HeaderMode::Drag => {
+        match self.nav.focus {
+            Focus::Header if self.nav.header_mode == HeaderMode::Drag => {
                 "column drag: [Left]/[Right] move column, [Enter]/[click] sort (asc/desc/off), [Space]/[Esc] leave drag"
             },
             Focus::Header => {
                 "fields: [Left]/[Right] move, [Space] column drag, [Enter]/[s] sort (asc/desc/off), [d] remove column, [Esc] rows"
             },
-            Focus::Rows if self.row_mode == RowMode::Pick => {
+            Focus::Rows if self.nav.row_mode == RowMode::Pick => {
                 "pick value: [Left]/[Right] choose field, [Enter] filter by this value, [Space]/[Esc] leave"
             },
             Focus::UpdateLine => {
@@ -784,8 +832,8 @@ impl AppState {
 
     /// Filter history keys, on a second prompt line in the plain rows view.
     pub fn prompts_history(&self) -> Option<&'static str> {
-        match self.focus {
-            Focus::Rows if self.row_mode == RowMode::Normal => {
+        match self.nav.focus {
+            Focus::Rows if self.nav.row_mode == RowMode::Normal => {
                 Some("filters: [Ctrl+Z] undo last filter, [Ctrl+Y] redo last deleted filter")
             },
             _ => None,
@@ -793,9 +841,8 @@ impl AppState {
     }
 
     pub fn page_height(&self) -> usize {
-        usize::from(self.areas.rows.height.saturating_sub(1)).max(1)
+        usize::from(self.geometry.areas.rows.height.saturating_sub(1)).max(1)
     }
-
 }
 
 /// The field path a column addresses; pseudo columns parse from their labels.
@@ -838,7 +885,7 @@ mod tests {
     fn new_state_selects_everything() {
         let state = state_of(&["{\"a\":1}", "{\"b\":2}"]);
         assert_eq!(state.view.len(), 2);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
         assert!(state.status.contains("rows 2/2 of 2"));
     }
 
@@ -846,14 +893,14 @@ mod tests {
     fn slash_focuses_search_and_typing_narrows_the_view() {
         let mut state = state_of(&["{\"message\":\"disk full\"}", "{\"message\":\"ok\"}"]);
         state.handle_key(KeyCode::Char('/'), KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Search);
+        assert_eq!(state.nav.focus, Focus::Search);
         for ch in "disk".chars() {
             state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
         }
-        assert_eq!(state.search_input.text(), "disk");
+        assert_eq!(state.query.search_input.text(), "disk");
         assert_eq!(state.view.len(), 1);
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
         assert_eq!(state.view.len(), 1);
     }
 
@@ -862,19 +909,19 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
         // Cyrillic letters land on the QWERTY key that carries the binding.
         state.handle_key(KeyCode::Char('о'), KeyModifiers::NONE); // physical j
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.nav.cursor, 1);
         state.handle_key(KeyCode::Char('к'), KeyModifiers::NONE); // physical r
-        assert!(state.search.regex);
+        assert!(state.query.search.regex);
         state.handle_key(KeyCode::Char('.'), KeyModifiers::NONE); // physical / focuses search
-        assert_eq!(state.focus, Focus::Search);
+        assert_eq!(state.nav.focus, Focus::Search);
         state.handle_key(KeyCode::Char('й'), KeyModifiers::NONE); // physical q types text here
-        assert_eq!(state.search_input.text(), "й");
+        assert_eq!(state.query.search_input.text(), "й");
         state.handle_key(KeyCode::Char('й'), KeyModifiers::SHIFT); // physical ? closes help
-        state.focus = Focus::Rows;
+        state.nav.focus = Focus::Rows;
         state.handle_key(KeyCode::Char(','), KeyModifiers::SHIFT); // physical / with Shift is ?
-        assert!(state.help);
+        assert!(state.overlays.help);
         state.handle_key(KeyCode::Char('й'), KeyModifiers::NONE); // physical q closes help
-        assert!(!state.help);
+        assert!(!state.overlays.help);
         state.handle_key(KeyCode::Char('с'), KeyModifiers::CONTROL); // physical Ctrl-C quits
         assert!(state.quit);
     }
@@ -882,29 +929,29 @@ mod tests {
     #[test]
     fn shift_s_focuses_the_field_header_from_rows() {
         let mut state = state_of(&["{\"a\":1}", "{\"b\":2}"]);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
         state.handle_key(KeyCode::Char('S'), KeyModifiers::SHIFT);
-        assert_eq!(state.focus, Focus::Header);
+        assert_eq!(state.nav.focus, Focus::Header);
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
     }
 
     #[test]
     fn russian_layout_shift_s_focuses_the_field_header() {
         let mut state = state_of(&["{\"a\":1}"]);
         state.handle_key(KeyCode::Char('Ы'), KeyModifiers::SHIFT); // the physical S key
-        assert_eq!(state.focus, Focus::Header);
+        assert_eq!(state.nav.focus, Focus::Header);
     }
 
     #[test]
     fn russian_layout_text_entry_keeps_cyrillic() {
         let mut state = state_of(&["{\"message\":\"ошибка диска\"}", "{\"message\":\"ok\"}"]);
         state.handle_key(KeyCode::Char('.'), KeyModifiers::NONE); // physical / focuses search
-        assert_eq!(state.focus, Focus::Search);
+        assert_eq!(state.nav.focus, Focus::Search);
         for ch in "ошиб".chars() {
             state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
         }
-        assert_eq!(state.search_input.text(), "ошиб");
+        assert_eq!(state.query.search_input.text(), "ошиб");
         assert_eq!(state.view.len(), 1);
     }
 
@@ -913,9 +960,9 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}", "{\"a\":2}"]);
         state.config.key_map = KeyMapMode::Raw;
         state.handle_key(KeyCode::Char('о'), KeyModifiers::NONE); // physical j, unbound in raw
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.nav.cursor, 0);
         state.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.nav.cursor, 1);
     }
 
     #[test]
@@ -924,40 +971,53 @@ mod tests {
         let refs: Vec<&str> = records.iter().map(String::as_str).collect();
         let mut state = state_of(&refs);
         state.wheel(1);
-        assert_eq!(state.cursor, 3);
+        assert_eq!(state.nav.cursor, 3);
         state.wheel(-5);
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.nav.cursor, 0);
         state.wheel(-1);
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.nav.cursor, 0);
         state.wheel(100);
-        assert_eq!(state.cursor, 9);
+        assert_eq!(state.nav.cursor, 9);
     }
 
     #[test]
     fn wizard_walks_field_operator_pattern() {
         let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
         state.handle_key(KeyCode::Char('F'), KeyModifiers::NONE);
-        assert!(state.wizard.is_some());
+        assert!(state.overlays.wizard.is_some());
         for ch in "lev".chars() {
             state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
         }
         assert!(
             state
+                .overlays
                 .wizard
                 .as_ref()
                 .is_some_and(|w| w.matches.iter().any(|c| c.label == "level"))
         );
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Operator));
+        assert!(
+            state
+                .overlays
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Operator)
+        );
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Pattern));
+        assert!(
+            state
+                .overlays
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Pattern)
+        );
         for ch in "WARN".chars() {
             state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
         }
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.wizard.is_none());
-        assert_eq!(state.filters.len(), 1);
-        assert!(state.filters[0].to_string().contains("level=WARN"));
+        assert!(state.overlays.wizard.is_none());
+        assert_eq!(state.query.filters.len(), 1);
+        assert!(state.query.filters[0].to_string().contains("level=WARN"));
         assert_eq!(state.view.len(), 1);
     }
 
@@ -968,9 +1028,9 @@ mod tests {
         state.wizard_enter(); // field: first candidate
         state.wizard_move(4); // Exists
         state.wizard_enter();
-        assert!(state.wizard.is_none());
-        assert_eq!(state.filters.len(), 1);
-        assert!(state.filters[0].to_string().contains('^'));
+        assert!(state.overlays.wizard.is_none());
+        assert_eq!(state.query.filters.len(), 1);
+        assert!(state.query.filters[0].to_string().contains('^'));
     }
 
     #[test]
@@ -979,11 +1039,29 @@ mod tests {
         state.open_filter_wizard();
         state.wizard_enter();
         state.wizard_enter();
-        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Pattern));
+        assert!(
+            state
+                .overlays
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Pattern)
+        );
         state.wizard_back();
-        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Operator));
+        assert!(
+            state
+                .overlays
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Operator)
+        );
         state.wizard_back();
-        assert!(state.wizard.as_ref().is_some_and(|w| w.phase == WizardPhase::Field));
+        assert!(
+            state
+                .overlays
+                .wizard
+                .as_ref()
+                .is_some_and(|w| w.phase == WizardPhase::Field)
+        );
     }
 
     #[test]
@@ -992,12 +1070,12 @@ mod tests {
         state.open_detail();
         state.detail_move(1); // focus @level (field list starts with @timestamp)
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // open the action menu
-        assert!(state.detail.as_ref().is_some_and(|d| d.menu == Some(0)));
+        assert!(state.overlays.detail.as_ref().is_some_and(|d| d.menu == Some(0)));
         state.detail_move(1); // menu cursor: FilterEq
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // apply
-        assert!(state.detail.as_ref().is_some_and(|d| d.menu.is_none()));
-        assert_eq!(state.filters.len(), 1);
-        assert!(state.filters[0].to_string().contains("level=WARN"));
+        assert!(state.overlays.detail.as_ref().is_some_and(|d| d.menu.is_none()));
+        assert_eq!(state.query.filters.len(), 1);
+        assert!(state.query.filters[0].to_string().contains("level=WARN"));
     }
 
     #[test]
@@ -1007,7 +1085,7 @@ mod tests {
         let predicate = crate::filter::build_leaf("level", LeafOp::Eq, Some("WARN"), &state_config).expect("leaf");
         state.add_filter(predicate);
         assert_eq!(state.view.len(), 1);
-        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.query.filters.len(), 1);
         state.remove_filter(0);
         assert_eq!(state.view.len(), 2);
     }
@@ -1024,16 +1102,16 @@ mod tests {
         let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
         state.add_filter(level_filter(&state, "INFO"));
         state.add_filter(level_filter(&state, "WARN"));
-        assert_eq!(state.filters.len(), 2);
+        assert_eq!(state.query.filters.len(), 2);
         state.handle_key(KeyCode::Char('z'), CONTROL);
-        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.query.filters.len(), 1);
         state.handle_key(KeyCode::Char('z'), CONTROL);
-        assert_eq!(state.filters.len(), 0);
+        assert_eq!(state.query.filters.len(), 0);
         assert_eq!(state.view.len(), 2);
         state.handle_key(KeyCode::Char('y'), CONTROL);
-        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.query.filters.len(), 1);
         state.handle_key(KeyCode::Char('y'), CONTROL);
-        assert_eq!(state.filters.len(), 2);
+        assert_eq!(state.query.filters.len(), 2);
         assert!(state.message.as_deref().unwrap_or_default().contains("redone"));
     }
 
@@ -1043,13 +1121,13 @@ mod tests {
         state.add_filter(level_filter(&state, "INFO"));
         state.add_filter(level_filter(&state, "WARN"));
         state.clear_filters();
-        assert!(state.filters.is_empty());
+        assert!(state.query.filters.is_empty());
         state.handle_key(KeyCode::Char('z'), CONTROL);
-        assert_eq!(state.filters.len(), 2);
+        assert_eq!(state.query.filters.len(), 2);
         state.remove_filter(0);
         state.add_filter(level_filter(&state, "INFO"));
         state.handle_key(KeyCode::Char('y'), CONTROL);
-        assert_eq!(state.filters.len(), 2);
+        assert_eq!(state.query.filters.len(), 2);
         assert!(state.message.as_deref().unwrap_or_default().contains("nothing to redo"));
     }
 
@@ -1066,21 +1144,21 @@ mod tests {
         let mut state = state_of(&["{\"level\":\"INFO\"}", "{\"level\":\"WARN\"}"]);
         state.add_filter(level_filter(&state, "INFO"));
         state.handle_key(KeyCode::Char('я'), CONTROL); // the physical z key
-        assert!(state.filters.is_empty());
+        assert!(state.query.filters.is_empty());
         state.handle_key(KeyCode::Char('н'), CONTROL); // the physical y key
-        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.query.filters.len(), 1);
     }
 
     #[test]
     fn filter_input_parses_and_reports_errors() {
         let mut state = state_of(&["{\"level\":\"WARN\",\"msg\":\"disk full\"}"]);
-        state.filter_input.set("level=WARN");
+        state.query.filter_input.set("level=WARN");
         state.submit_filter_input();
-        assert_eq!(state.filters.len(), 1);
-        state.filter_input.set("level");
+        assert_eq!(state.query.filters.len(), 1);
+        state.query.filter_input.set("level");
         state.submit_filter_input();
         assert!(state.message.as_deref().unwrap_or_default().contains("filter:"));
-        assert_eq!(state.filters.len(), 1);
+        assert_eq!(state.query.filters.len(), 1);
     }
 
     #[test]
@@ -1102,7 +1180,7 @@ mod tests {
         state.cycle_sort(&column);
         assert_eq!(state.view.rows, vec![0, 1]);
         state.cycle_sort(&column);
-        assert!(state.sorts.is_empty());
+        assert!(state.query.sorts.is_empty());
     }
 
     #[test]
@@ -1124,7 +1202,7 @@ mod tests {
         for name in names {
             state.columns.push(Column::Field(FieldPath::parse(name).expect("path")));
         }
-        state.header_cursor = 0;
+        state.nav.header_cursor = 0;
     }
 
     #[test]
@@ -1133,10 +1211,10 @@ mod tests {
         with_columns(&mut state, &["a", "b", "c"]);
         state.move_column(1);
         assert_eq!(columns_of(&state), ["b", "a", "c"]);
-        assert_eq!(state.header_cursor, 1);
+        assert_eq!(state.nav.header_cursor, 1);
         state.move_column(-1);
         assert_eq!(columns_of(&state), ["a", "b", "c"]);
-        assert_eq!(state.header_cursor, 0);
+        assert_eq!(state.nav.header_cursor, 0);
         state.move_column(-1);
         assert_eq!(columns_of(&state), ["a", "b", "c"]);
     }
@@ -1145,16 +1223,16 @@ mod tests {
     fn header_drag_flow_moves_columns_then_sorts() {
         let mut state = state_of(&["{\"a\":2}", "{\"a\":1}"]);
         with_columns(&mut state, &["a", "b"]);
-        state.focus = Focus::Header;
+        state.nav.focus = Focus::Header;
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-        assert_eq!(state.header_mode, HeaderMode::Drag);
+        assert_eq!(state.nav.header_mode, HeaderMode::Drag);
         assert!(state.status.contains("fields (drag)"));
         state.handle_key(KeyCode::Right, KeyModifiers::NONE);
         assert_eq!(columns_of(&state), ["b", "a"]);
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(state.header_mode, HeaderMode::Navigate);
-        assert_eq!(state.sorts.len(), 1);
-        assert_eq!(state.sorts[0].field, FieldPath::parse("a").expect("path"));
+        assert_eq!(state.nav.header_mode, HeaderMode::Navigate);
+        assert_eq!(state.query.sorts.len(), 1);
+        assert_eq!(state.query.sorts[0].field, FieldPath::parse("a").expect("path"));
     }
 
     #[test]
@@ -1162,16 +1240,16 @@ mod tests {
         use ratatui::crossterm::event::MouseButton;
         let mut state = state_of(&["{\"a\":2}", "{\"a\":1}"]);
         with_columns(&mut state, &["a"]);
-        state.areas.rows = Rect::new(0, 2, 40, 10);
-        state.header_cells.push((0, 8, 0));
+        state.geometry.areas.rows = Rect::new(0, 2, 40, 10);
+        state.geometry.header_cells.push((0, 8, 0));
         let click = MouseEventKind::Down(MouseButton::Left);
         state.handle_mouse(click, 1, 2);
-        assert_eq!(state.focus, Focus::Header);
-        assert_eq!(state.header_mode, HeaderMode::Drag);
-        assert!(state.sorts.is_empty());
+        assert_eq!(state.nav.focus, Focus::Header);
+        assert_eq!(state.nav.header_mode, HeaderMode::Drag);
+        assert!(state.query.sorts.is_empty());
         state.handle_mouse(click, 1, 2);
-        assert_eq!(state.sorts.len(), 1);
-        assert_eq!(state.header_mode, HeaderMode::Navigate);
+        assert_eq!(state.query.sorts.len(), 1);
+        assert_eq!(state.nav.header_mode, HeaderMode::Navigate);
     }
 
     #[test]
@@ -1184,16 +1262,16 @@ mod tests {
             crate::filter::build_leaf("level", LeafOp::Neq, Some("INFO"), &state.filter_context()).expect("leaf");
         state.add_filter(first);
         state.add_filter(second);
-        state.focus = Focus::Rows;
-        state.filter_cursor = 0;
-        state.areas.chips = Rect::new(0, 1, 40, 2);
-        state.chip_cells.push((0, 10, 0, 1));
-        state.chip_cells.push((11, 22, 1, 1));
+        state.nav.focus = Focus::Rows;
+        state.nav.filter_cursor = 0;
+        state.geometry.areas.chips = Rect::new(0, 1, 40, 2);
+        state.geometry.chip_cells.push((0, 10, 0, 1));
+        state.geometry.chip_cells.push((11, 22, 1, 1));
         let click = MouseEventKind::Down(MouseButton::Left);
         state.handle_mouse(click, 15, 1);
-        assert_eq!(state.filter_cursor, 0);
+        assert_eq!(state.nav.filter_cursor, 0);
         state.handle_mouse(click, 15, 2);
-        assert_eq!(state.filter_cursor, 1);
+        assert_eq!(state.nav.filter_cursor, 1);
     }
 
     #[test]
@@ -1202,7 +1280,7 @@ mod tests {
         let column = Column::Field(FieldPath::parse("a").expect("path"));
         state.columns.push(column.clone());
         state.cycle_sort(&column);
-        assert_eq!(state.sort_marks, vec![("a".to_owned(), SortDir::Asc)]);
+        assert_eq!(state.query.sort_marks, vec![("a".to_owned(), SortDir::Asc)]);
         assert!(!state.status.contains("sort"));
         assert!(state.status.contains("rows 1/1 of 1"));
     }
@@ -1214,26 +1292,27 @@ mod tests {
         state
             .columns
             .push(Column::Field(FieldPath::parse("level").expect("path")));
-        state.focus = Focus::Rows;
+        state.nav.focus = Focus::Rows;
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-        assert_eq!(state.row_mode, RowMode::Pick);
+        assert_eq!(state.nav.row_mode, RowMode::Pick);
         assert!(state.prompts_text().contains("pick value"));
         state.handle_key(KeyCode::Right, KeyModifiers::NONE);
-        assert_eq!(state.pick_cursor, 0);
+        assert_eq!(state.nav.pick_cursor, 0);
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(state.row_mode, RowMode::Normal);
+        assert_eq!(state.nav.row_mode, RowMode::Normal);
         assert!(
             state
+                .overlays
                 .wizard
                 .as_ref()
                 .is_some_and(|w| w.phase == WizardPhase::Operator && w.prefill.is_some())
         );
-        assert_eq!(state.focus, Focus::FilterInput);
+        assert_eq!(state.nav.focus, Focus::FilterInput);
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // Eq: the pattern step is prefilled
-        assert_eq!(state.filter_input.text(), "INFO");
+        assert_eq!(state.query.filter_input.text(), "INFO");
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE); // commit
-        assert_eq!(state.filters.len(), 1);
-        assert_eq!(state.filters[0].to_string(), "level=INFO");
+        assert_eq!(state.query.filters.len(), 1);
+        assert_eq!(state.query.filters[0].to_string(), "level=INFO");
         assert_eq!(state.view.len(), 1);
     }
 
@@ -1242,11 +1321,11 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         state.columns.clear();
         state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
-        state.focus = Focus::Rows;
+        state.nav.focus = Focus::Rows;
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-        assert_eq!(state.row_mode, RowMode::Pick);
+        assert_eq!(state.nav.row_mode, RowMode::Pick);
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(state.row_mode, RowMode::Normal);
+        assert_eq!(state.nav.row_mode, RowMode::Normal);
     }
 
     #[test]
@@ -1254,13 +1333,13 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         state.columns.clear();
         state.columns.push(Column::Field(FieldPath::parse("a").expect("path")));
-        state.focus = Focus::Rows;
+        state.nav.focus = Focus::Rows;
         assert!(state.prompts_text().contains("[Space] select value to filter by"));
-        state.focus = Focus::Header;
+        state.nav.focus = Focus::Header;
         assert!(state.prompts_text().contains("[Space] column drag"));
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
         assert!(state.prompts_text().contains("column drag"));
-        state.focus = Focus::Search;
+        state.nav.focus = Focus::Search;
         assert!(state.prompts_text().is_empty());
     }
 
@@ -1269,25 +1348,26 @@ mod tests {
         let mut state = state_of(&["{\"level\":\"ERROR\",\"message\":\"boom\"}"]);
         state.set_search_text("");
         state.open_detail();
-        assert!(state.detail.is_some());
+        assert!(state.overlays.detail.is_some());
         let index = state
+            .overlays
             .detail
             .as_ref()
             .map(|d| d.fields.iter().position(|f| f.label == "level").unwrap_or(usize::MAX))
             .unwrap_or(usize::MAX);
-        state.detail.as_mut().expect("detail").cursor = index;
+        state.overlays.detail.as_mut().expect("detail").cursor = index;
         state.detail_apply_menu_action(MenuAction::FilterEq);
-        assert_eq!(state.filters.len(), 1);
-        assert_eq!(state.filters[0].to_string(), "level=ERROR");
+        assert_eq!(state.query.filters.len(), 1);
+        assert_eq!(state.query.filters[0].to_string(), "level=ERROR");
     }
 
     #[test]
     fn picker_lists_and_toggles_fields() {
         let mut state = state_of(&["{\"a\":1,\"b\":2}"]);
         state.open_picker();
-        assert_eq!(state.picker.as_ref().map(|p| p.fields.len()), Some(2));
+        assert_eq!(state.overlays.picker.as_ref().map(|p| p.fields.len()), Some(2));
         state.picker_toggle();
-        let picker = state.picker.as_ref().expect("picker");
+        let picker = state.overlays.picker.as_ref().expect("picker");
         assert!(picker.fields[picker.matches[0]].selected);
         state.close_picker();
         assert_eq!(state.columns.len(), 1);
@@ -1297,11 +1377,11 @@ mod tests {
     fn picker_filter_narrows_matches() {
         let mut state = state_of(&["{\"alpha\":1,\"beta\":2}"]);
         state.open_picker();
-        if let Some(picker) = state.picker.as_mut() {
+        if let Some(picker) = state.overlays.picker.as_mut() {
             picker.input.set("al");
         }
         state.picker_filter();
-        assert_eq!(state.picker.as_ref().map(|p| p.matches.len()), Some(1));
+        assert_eq!(state.overlays.picker.as_ref().map(|p| p.matches.len()), Some(1));
     }
 
     #[test]
@@ -1309,44 +1389,53 @@ mod tests {
         let mut state = state_of(&["{\"alpha\":1,\"beta\":2}"]);
         state.open_picker();
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-        let picker = state.picker.as_ref().expect("picker stays open");
+        let picker = state.overlays.picker.as_ref().expect("picker stays open");
         assert!(picker.input.text().is_empty());
         assert_eq!(picker.matches.len(), 2);
         assert!(picker.fields[picker.matches[0]].selected);
         state.handle_key(KeyCode::Char(' '), KeyModifiers::NONE);
-        assert!(!state.picker.as_ref().expect("picker").fields.iter().any(|f| f.selected));
+        assert!(
+            !state
+                .overlays
+                .picker
+                .as_ref()
+                .expect("picker")
+                .fields
+                .iter()
+                .any(|f| f.selected)
+        );
     }
 
     #[test]
     fn keys_drive_rows_and_focus() {
         let mut state = state_of(&["{\"a\":1}", "{\"a\":2}", "{\"a\":3}"]);
         state.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-        assert_eq!(state.cursor, 1);
+        assert_eq!(state.nav.cursor, 1);
         state.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
-        assert_eq!(state.cursor, 2);
+        assert_eq!(state.nav.cursor, 2);
         state.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
-        assert_eq!(state.cursor, 0);
+        assert_eq!(state.nav.cursor, 0);
         state.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Search);
+        assert_eq!(state.nav.focus, Focus::Search);
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
         state.handle_key(KeyCode::Char('?'), KeyModifiers::NONE);
-        assert!(state.help);
+        assert!(state.overlays.help);
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(!state.help);
+        assert!(!state.overlays.help);
     }
 
     #[test]
     fn typing_in_search_focus_edits_the_pattern() {
         let mut state = state_of(&["{\"message\":\"disk full\"}"]);
-        state.focus = Focus::Search;
+        state.nav.focus = Focus::Search;
         for ch in "disk".chars() {
             state.handle_key(KeyCode::Char(ch), KeyModifiers::NONE);
         }
-        assert_eq!(state.search.patterns, vec!["disk"]);
+        assert_eq!(state.query.search.patterns, vec!["disk"]);
         assert_eq!(state.view.len(), 1);
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
     }
 
     #[test]
@@ -1392,9 +1481,9 @@ mod tests {
             },
         ));
         assert!(state.update_line_visible());
-        state.updating = true;
+        state.update.updating = true;
         assert!(!state.update_line_visible());
-        state.updating = false;
+        state.update.updating = false;
         state.config.no_update = true;
         assert!(!state.update_line_visible());
     }
@@ -1404,7 +1493,7 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         state.apply_update_event(UpdateEvent::Checked(0, UpdateOutcome::UpToDate));
         assert!(!state.update_line_visible());
-        assert!(state.repo_prompt.is_none());
+        assert!(state.update.repo_prompt.is_none());
     }
 
     #[test]
@@ -1417,38 +1506,38 @@ mod tests {
                 reason: "offline".to_owned(),
             },
         ));
-        assert!(state.repo_prompt.is_some());
+        assert!(state.update.repo_prompt.is_some());
         assert!(state.message.as_deref().is_some_and(|m| m.contains("offline")));
         state.close_repo_prompt();
         state.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
-        assert!(state.repo_prompt.is_some());
+        assert!(state.update.repo_prompt.is_some());
     }
 
     #[test]
     fn url_prompt_submit_saves_repo_and_keeps_focus_on_the_prompt_until_ok() {
         let mut state = state_of(&["{\"a\":1}"]);
         state.config.no_update = true; // suppresses the background check thread
-        state.repo_prompt = Some(RepoPrompt {
+        state.update.repo_prompt = Some(RepoPrompt {
             message: String::new(),
             editor: Editor::with_text("not a url!!"),
         });
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.repo_prompt.is_some(), "a bad url keeps the prompt open");
+        assert!(state.update.repo_prompt.is_some(), "a bad url keeps the prompt open");
         assert!(
             state
                 .message
                 .as_deref()
                 .is_some_and(|m| m.contains("not a repository url"))
         );
-        if let Some(prompt) = state.repo_prompt.as_mut() {
+        if let Some(prompt) = state.update.repo_prompt.as_mut() {
             prompt.editor.set("you/fork");
         }
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.repo_prompt.is_none());
-        assert_eq!(state.update_repo.url(), "https://github.com/you/fork");
-        assert_eq!(state.update_repo.author, "you");
-        assert_eq!(state.update_repo.repo, "fork");
-        assert_eq!(state.update_check_generation, 1, "the submit bumps the generation, no_update spawns no thread");
+        assert!(state.update.repo_prompt.is_none());
+        assert_eq!(state.update.repo.url(), "https://github.com/you/fork");
+        assert_eq!(state.update.repo.author, "you");
+        assert_eq!(state.update.repo.repo, "fork");
+        assert_eq!(state.update.check_generation, 1, "the submit bumps the generation, no_update spawns no thread");
     }
 
     #[test]
@@ -1462,35 +1551,35 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.areas.update = Rect {
+        state.geometry.areas.update = Rect {
             x: 0,
             y: 20,
             width: 80,
             height: 1,
         };
-        state.changelog_btn = Rect {
+        state.update.changelog_btn = Rect {
             x: 70,
             y: 20,
             width: 10,
             height: 1,
         };
         state.handle_mouse(MouseEventKind::Down(MouseButton::Left), 72, 20);
-        assert!(state.changelog.is_some());
+        assert!(state.update.changelog.is_some());
         {
-            let changelog = state.changelog.as_mut().expect("open");
+            let changelog = state.update.changelog.as_mut().expect("open");
             changelog.content_height = 100;
             changelog.page = 10;
         }
         state.handle_key(KeyCode::Char('j'), KeyModifiers::NONE);
-        assert_eq!(state.changelog.as_ref().expect("open").scroll, 1);
+        assert_eq!(state.update.changelog.as_ref().expect("open").scroll, 1);
         state.handle_key(KeyCode::Char('G'), KeyModifiers::NONE);
-        assert_eq!(state.changelog.as_ref().expect("open").scroll, 90);
+        assert_eq!(state.update.changelog.as_ref().expect("open").scroll, 90);
         state.handle_key(KeyCode::Char('g'), KeyModifiers::NONE);
-        assert_eq!(state.changelog.as_ref().expect("open").scroll, 0);
+        assert_eq!(state.update.changelog.as_ref().expect("open").scroll, 0);
         state.handle_mouse(MouseEventKind::ScrollDown, 40, 10);
-        assert_eq!(state.changelog.as_ref().expect("open").scroll, 3);
+        assert_eq!(state.update.changelog.as_ref().expect("open").scroll, 3);
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(state.changelog.is_none());
+        assert!(state.update.changelog.is_none());
     }
 
     #[test]
@@ -1503,12 +1592,12 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.updating = true;
+        state.update.updating = true;
         state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Updated {
             version: "9.9.9".to_owned(),
         }));
-        assert!(!state.updating);
-        assert!(state.update_available.is_none());
+        assert!(!state.update.updating);
+        assert!(state.update.available.is_none());
         assert!(state.message.as_deref().is_some_and(|m| m.contains("restart")));
     }
 
@@ -1516,9 +1605,9 @@ mod tests {
     fn start_update_is_inert_when_updates_are_disabled() {
         let mut state = state_of(&["{\"a\":1}"]);
         state.config.no_update = true;
-        state.updating = false;
+        state.update.updating = false;
         state.start_update();
-        assert!(!state.updating, "no_update never spawns a worker");
+        assert!(!state.update.updating, "no_update never spawns a worker");
     }
 
     #[test]
@@ -1531,14 +1620,14 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.update_cargo_managed = true;
+        state.update.cargo_managed = true;
         // The click and Enter on the focused button both route here: they must not self-update,
         // that would replace a binary cargo tracks and desync its install list.
         state.start_update();
-        assert!(!state.updating, "a cargo install is never self-updated");
+        assert!(!state.update.updating, "a cargo install is never self-updated");
         let message = state.message.as_deref().expect("a message explains the refusal");
         assert!(message.contains("cargo install --git"), "the cargo command is given: {message}");
-        assert!(message.contains(&state.update_repo.url()), "the command names the repository: {message}");
+        assert!(message.contains(&state.update.repo.url()), "the command names the repository: {message}");
     }
 
     #[test]
@@ -1546,14 +1635,14 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         state.config.no_update = true; // suppresses the check thread
         // A startup check of the default repository is in flight (generation 1).
-        state.update_check_generation = 1;
-        state.repo_prompt = Some(RepoPrompt {
+        state.update.check_generation = 1;
+        state.update.repo_prompt = Some(RepoPrompt {
             message: String::new(),
             editor: Editor::with_text("you/fork"),
         });
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert_eq!(state.update_repo.url(), "https://github.com/you/fork", "the url is applied at once");
-        assert_eq!(state.update_check_generation, 2, "the submit starts a new generation");
+        assert_eq!(state.update.repo.url(), "https://github.com/you/fork", "the url is applied at once");
+        assert_eq!(state.update.check_generation, 2, "the submit starts a new generation");
         // The old check answers late, about the default repository: it must not drive the ui.
         state.apply_update_event(UpdateEvent::Checked(
             1,
@@ -1562,7 +1651,7 @@ mod tests {
                 reason: "late".to_owned(),
             },
         ));
-        assert!(state.repo_prompt.is_none(), "the stale answer must not reopen the prompt");
+        assert!(state.update.repo_prompt.is_none(), "the stale answer must not reopen the prompt");
         state.apply_update_event(UpdateEvent::Checked(
             1,
             UpdateOutcome::Available {
@@ -1571,7 +1660,7 @@ mod tests {
             },
         ));
         assert!(
-            state.update_available.is_none(),
+            state.update.available.is_none(),
             "the stale answer must not show the update line for the old repository"
         );
         // The new generation's answer applies.
@@ -1582,7 +1671,7 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        assert!(state.update_available.is_some(), "the current generation drives the ui");
+        assert!(state.update.available.is_some(), "the current generation drives the ui");
     }
 
     #[test]
@@ -1595,20 +1684,20 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.focus = Focus::UpdateLine;
-        state.update_focus_index = 1;
+        state.nav.focus = Focus::UpdateLine;
+        state.update.focus_index = 1;
         assert!(state.update_line_visible());
         // The repository's releases moved (a rollback): the re-check says up to date.
         state.apply_update_event(UpdateEvent::Checked(0, UpdateOutcome::UpToDate));
-        assert!(state.update_available.is_none(), "the stale line is cleared");
+        assert!(state.update.available.is_none(), "the stale line is cleared");
         assert!(!state.update_line_visible());
-        assert_eq!(state.focus, Focus::Rows, "a focus parked on a hidden line falls back to the rows");
+        assert_eq!(state.nav.focus, Focus::Rows, "a focus parked on a hidden line falls back to the rows");
     }
 
     #[test]
     fn quitting_during_an_update_needs_a_second_press() {
         let mut state = state_of(&["{\"a\":1}"]);
-        state.updating = true;
+        state.update.updating = true;
         state.quit();
         assert!(!state.quit, "the first press is refused while the self-replace runs");
         assert!(state.message.as_deref().is_some_and(|m| m.contains("press q again")));
@@ -1619,7 +1708,7 @@ mod tests {
     #[test]
     fn a_finished_update_clears_the_quit_guard() {
         let mut state = state_of(&["{\"a\":1}"]);
-        state.updating = true;
+        state.update.updating = true;
         state.quit();
         assert!(!state.quit);
         state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Updated {
@@ -1639,16 +1728,16 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.focus = Focus::UpdateLine;
+        state.nav.focus = Focus::UpdateLine;
         state.open_repo_prompt();
-        if let Some(prompt) = state.repo_prompt.as_mut() {
+        if let Some(prompt) = state.update.repo_prompt.as_mut() {
             // A refused localhost port: the spawned check's Unreachable answer lands in
             // the channel unpolled, so it cannot race the assertions below.
             prompt.editor.set("http://127.0.0.1:9/you/fork");
         }
         state.submit_repo_url();
-        assert!(state.repo_prompt.is_none());
-        assert_eq!(state.focus, Focus::Rows, "the hidden line drops its focus at once");
+        assert!(state.update.repo_prompt.is_none());
+        assert_eq!(state.nav.focus, Focus::Rows, "the hidden line drops its focus at once");
     }
 
     #[test]
@@ -1664,23 +1753,23 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.areas.update = Rect {
+        state.geometry.areas.update = Rect {
             x: 0,
             y: 20,
             width: 80,
             height: 1,
         };
-        state.update_btn = Rect {
+        state.update.btn_rect = Rect {
             x: 2,
             y: 20,
             width: 40,
             height: 1,
         };
         state.open_detail();
-        assert!(state.detail.is_some(), "the detail overlay is open");
+        assert!(state.overlays.detail.is_some(), "the detail overlay is open");
         state.handle_mouse(MouseEventKind::Down(MouseButton::Left), 5, 20);
-        assert!(!state.updating, "a click behind the overlay is inert");
-        assert_eq!(state.focus, Focus::Rows, "the update line was not pressed or focused");
+        assert!(!state.update.updating, "a click behind the overlay is inert");
+        assert_eq!(state.nav.focus, Focus::Rows, "the update line was not pressed or focused");
     }
 
     #[test]
@@ -1688,10 +1777,10 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}", "{\"a\":2}", "{\"a\":3}", "{\"a\":4}", "{\"a\":5}"]);
         state.open_repo_prompt();
         state.wheel(1);
-        assert_eq!(state.cursor, 0, "the rows do not scroll behind the pop-up");
+        assert_eq!(state.nav.cursor, 0, "the rows do not scroll behind the pop-up");
         state.close_repo_prompt();
         state.wheel(1);
-        assert_eq!(state.cursor, 3, "three lines per notch with no overlay");
+        assert_eq!(state.nav.cursor, 3, "three lines per notch with no overlay");
     }
 
     #[test]
@@ -1706,12 +1795,12 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.focus = Focus::UpdateLine;
+        state.nav.focus = Focus::UpdateLine;
         state.handle_key(KeyCode::Char('c'), KeyModifiers::NONE);
-        assert!(state.picker.is_none(), "c on the update line never opens the value picker");
-        assert!(state.repo_prompt.is_none(), "c on the update line is inert, u opens the pop-up");
+        assert!(state.overlays.picker.is_none(), "c on the update line never opens the value picker");
+        assert!(state.update.repo_prompt.is_none(), "c on the update line is inert, u opens the pop-up");
         state.handle_key(KeyCode::Char('u'), KeyModifiers::NONE);
-        assert!(state.repo_prompt.is_some(), "u on the update line opens the repository pop-up");
+        assert!(state.update.repo_prompt.is_some(), "u on the update line opens the repository pop-up");
     }
 
     #[test]
@@ -1724,22 +1813,22 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        assert_eq!(state.focus, Focus::Rows);
+        assert_eq!(state.nav.focus, Focus::Rows);
         state.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::UpdateLine, "Tab reaches the update line from the rows");
+        assert_eq!(state.nav.focus, Focus::UpdateLine, "Tab reaches the update line from the rows");
         state.handle_key(KeyCode::Left, KeyModifiers::NONE);
-        assert_eq!(state.update_focus_index, 0, "Left selects the update button");
+        assert_eq!(state.update.focus_index, 0, "Left selects the update button");
         state.handle_key(KeyCode::Right, KeyModifiers::NONE);
-        assert_eq!(state.update_focus_index, 1, "Right selects the changelog button");
+        assert_eq!(state.update.focus_index, 1, "Right selects the changelog button");
         state.handle_key(KeyCode::Enter, KeyModifiers::NONE);
-        assert!(state.changelog.is_some(), "Enter pressed the focused changelog button");
-        assert!(!state.updating, "Enter on the changelog never starts an update");
+        assert!(state.update.changelog.is_some(), "Enter pressed the focused changelog button");
+        assert!(!state.update.updating, "Enter on the changelog never starts an update");
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(state.changelog.is_none());
+        assert!(state.update.changelog.is_none());
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert_eq!(state.focus, Focus::Rows, "Esc leaves the update line");
+        assert_eq!(state.nav.focus, Focus::Rows, "Esc leaves the update line");
         state.handle_key(KeyCode::BackTab, KeyModifiers::NONE);
-        assert_ne!(state.focus, Focus::UpdateLine, "BackTab cycles from the rows, not to the line");
+        assert_ne!(state.nav.focus, Focus::UpdateLine, "BackTab cycles from the rows, not to the line");
     }
 
     #[test]
@@ -1752,10 +1841,10 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.focus = Focus::UpdateLine;
-        state.updating = true; // the line hides while updating
+        state.nav.focus = Focus::UpdateLine;
+        state.update.updating = true; // the line hides while updating
         state.apply_update_event(UpdateEvent::Performed(PerformOutcome::UpToDate));
-        assert_eq!(state.focus, Focus::Rows, "the focus leaves a line that is no longer drawn");
+        assert_eq!(state.nav.focus, Focus::Rows, "the focus leaves a line that is no longer drawn");
     }
 
     #[test]
@@ -1763,7 +1852,7 @@ mod tests {
         let mut state = state_of(&["{\"a\":1}"]);
         for _ in 0..8 {
             state.handle_key(KeyCode::Tab, KeyModifiers::NONE);
-            assert_ne!(state.focus, Focus::UpdateLine, "no update line, no stop at it");
+            assert_ne!(state.nav.focus, Focus::UpdateLine, "no update line, no stop at it");
         }
     }
 
@@ -1777,7 +1866,7 @@ mod tests {
                 notes: release_notes("9.9.9"),
             },
         ));
-        state.updating = true;
+        state.update.updating = true;
         state.apply_update_event(UpdateEvent::Performed(PerformOutcome::Failed {
             reason: "Permission Denied: read-only directory".to_owned(),
             suggest_repo_url: false,
@@ -1788,17 +1877,17 @@ mod tests {
             "the status bar names the sudo remedy: {:?}",
             state.message
         );
-        assert!(state.repo_prompt.is_none(), "the repository is not the problem here");
+        assert!(state.update.repo_prompt.is_none(), "the repository is not the problem here");
     }
 
     #[test]
     fn the_repo_prompt_is_inert_to_clicks_and_closes_on_esc() {
         let mut state = state_of(&["{\"a\":1}"]);
         state.open_repo_prompt();
-        assert!(state.repo_prompt.is_some());
+        assert!(state.update.repo_prompt.is_some());
         state.handle_mouse(MouseEventKind::Down(ratatui::crossterm::event::MouseButton::Left), 40, 12);
-        assert!(state.repo_prompt.is_some(), "a click outside must not close the text prompt");
+        assert!(state.update.repo_prompt.is_some(), "a click outside must not close the text prompt");
         state.handle_key(KeyCode::Esc, KeyModifiers::NONE);
-        assert!(state.repo_prompt.is_none(), "Esc closes it, like every other window");
+        assert!(state.update.repo_prompt.is_none(), "Esc closes it, like every other window");
     }
 }

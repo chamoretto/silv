@@ -68,20 +68,20 @@ impl Matcher {
                     })?;
                 Compiled::Glob(glob.compile_matcher())
             },
-            MatchKind::Contains => Compiled::Regex(
-                compile_ci_regex(&regex::escape(pattern), case_insensitive)
-                    .map_err(|cause| SilvError::Regex {
+            MatchKind::Contains => {
+                Compiled::Regex(compile_ci_regex(&regex::escape(pattern), case_insensitive).map_err(|cause| {
+                    SilvError::Regex {
                         pattern: pattern.to_owned(),
                         cause,
-                    })?,
-            ),
-            MatchKind::Regex => Compiled::Regex(
-                compile_ci_regex(pattern, case_insensitive)
-                    .map_err(|cause| SilvError::Regex {
-                        pattern: pattern.to_owned(),
-                        cause,
-                    })?,
-            ),
+                    }
+                })?)
+            },
+            MatchKind::Regex => {
+                Compiled::Regex(compile_ci_regex(pattern, case_insensitive).map_err(|cause| SilvError::Regex {
+                    pattern: pattern.to_owned(),
+                    cause,
+                })?)
+            },
         };
         Ok(Self {
             pattern: pattern.to_owned(),
