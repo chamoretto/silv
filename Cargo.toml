@@ -43,8 +43,6 @@ mem-bench = [
 chrono = { version = "=0.4.45", default-features = false, features = ["std", "clock", "alloc"] }
 clap = { version = "=4.6.7", features = ["derive", "wrap_help", "env"] }
 crossterm = "=0.29.0"
-# Glyph Display for op-token enums (#[display("~")]) and From for thin newtypes.
-derive_more = { version = "=2.1.1", default-features = false, features = ["display", "from"] }
 # Doc-comment Display for plain enums (errors keep thiserror).
 displaydoc = "=0.2.7"
 globset = "=0.4.21"
