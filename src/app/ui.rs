@@ -604,10 +604,18 @@ fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: Ren
 
 /// The view indices to draw: the window of `body_height` lines at the rows scroll.
 fn visible_rows(state: &AppState, body_height: usize) -> Vec<u32> {
-    state.view.rows.iter().copied().skip(state.nav.rows_scroll).take(body_height).collect()
+    state
+        .view
+        .rows
+        .iter()
+        .copied()
+        .skip(state.nav.rows_scroll)
+        .take(body_height)
+        .collect()
 }
 
-fn keep_cursor_visible(state: &mut AppState, body_height: usize) {    if body_height == 0 {
+fn keep_cursor_visible(state: &mut AppState, body_height: usize) {
+    if body_height == 0 {
         return;
     }
     let body = u16_len(body_height);

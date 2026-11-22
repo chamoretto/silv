@@ -125,7 +125,10 @@ fn contains(area: Rect, row: u16) -> bool {
 
 /// The recorded header cell spanning a column.
 fn hit_index(cells: &[(u16, u16, usize)], column: u16) -> Option<usize> {
-    cells.iter().find(|(start, end, _)| *start <= column && column <= *end).map(|(_, _, index)| *index)
+    cells
+        .iter()
+        .find(|(start, end, _)| *start <= column && column <= *end)
+        .map(|(_, _, index)| *index)
 }
 
 /// The recorded chip cell spanning a column on a chips area row.
