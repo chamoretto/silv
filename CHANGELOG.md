@@ -27,6 +27,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - *(agents)* Release-prep amends must guard the post-commit hook ([#8](https://github.com/chamoretto/silv/issues/8))
 
+### Testing
+
+- *(update)* Assert the replaced binary version via CARGO_PKG_VERSION
+
 ### Styling
 
 - Cargo fmt
