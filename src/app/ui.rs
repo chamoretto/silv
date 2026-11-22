@@ -40,6 +40,7 @@ use crate::render::record_render::render_record;
 use crate::render::record_render::resolve_render;
 use crate::render::record_render::table_cells;
 use crate::render::table as table_layout;
+use crate::render::text::pad;
 use crate::render::text::u16_len;
 
 const WIDTH_CAP: usize = 60;
@@ -127,10 +128,7 @@ fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
         if state.query.search.regex { "R" } else { "r" },
         if state.query.search.scope_is_all() { "F" } else { "f" },
     );
-    let mut spans = vec![Span::styled(
-        "search: ",
-        Style::default().fg(ratatui::style::Color::DarkGray),
-    )];
+    let mut spans = vec![editor_label("search: ")];
     let text = state.query.search_input.text();
     if focused {
         spans.extend(cursor_spans(&text, state.query.search_input.cursor(), true));
@@ -339,7 +337,12 @@ fn predicate_spans(predicate: &Predicate, base: Style) -> Vec<Span<'static>> {
 }
 
 fn span_width(span: &Span<'_>) -> usize {
-    span.content.chars().count()
+    crate::render::text::width(span.content.as_ref())
+}
+
+/// Label of a line editor, dim: the search, filter and pop-up prompts share it.
+fn editor_label(text: &'static str) -> Span<'static> {
+    Span::styled(text, Style::default().fg(Color::DarkGray))
 }
 
 /// Prompt text with `[key]` tokens rendered with a background; the rest uses `base`.
@@ -420,10 +423,7 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     if !focused && text.is_empty() && wizard_suffix.is_none() {
         return;
     }
-    let mut spans = vec![Span::styled(
-        "filter: ",
-        Style::default().fg(ratatui::style::Color::DarkGray),
-    )];
+    let mut spans = vec![editor_label("filter: ")];
     spans.extend(cursor_spans(&text, state.query.filter_input.cursor(), focused));
     let suffix_base = Style::default().fg(Color::DarkGray);
     if let Some(suffix) = wizard_suffix {
@@ -918,7 +918,7 @@ fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
         height: 1,
     };
     let text = prompt.editor.text();
-    let spans = std::iter::once(Span::styled("repo url: ", Style::default().fg(Color::DarkGray)))
+    let spans = std::iter::once(editor_label("repo url: "))
         .chain(cursor_spans(&text, prompt.editor.cursor(), true))
         .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(Line::from(spans)), editor_rect);
