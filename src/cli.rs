@@ -8,6 +8,7 @@ use clap::Parser;
 use clap::Subcommand;
 use clap::ValueEnum;
 use miette::Result;
+use strum::Display as StrumDisplay;
 
 use crate::error::SilvError;
 use crate::filter::LeafOp;
@@ -39,7 +40,8 @@ pub enum FormatSelection {
     Forced(LogFormat),
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum, StrumDisplay)]
+#[strum(serialize_all = "lowercase")]
 pub enum RenderChoice {
     /// Table when fields are selected, otherwise the format default.
     #[default]
@@ -54,20 +56,6 @@ pub enum RenderChoice {
     Json,
     /// Compact JSON per record.
     Jsonl,
-}
-
-impl std::fmt::Display for RenderChoice {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let token = match self {
-            Self::Auto => "auto",
-            Self::Table => "table",
-            Self::Kv => "kv",
-            Self::Line => "line",
-            Self::Json => "json",
-            Self::Jsonl => "jsonl",
-        };
-        f.write_str(token)
-    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default, ValueEnum)]
@@ -154,7 +142,8 @@ pub enum SortDir {
 
 /// Which heap layers `--memory-report` measures.
 #[cfg(feature = "mem-bench")]
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, StrumDisplay)]
+#[strum(serialize_all = "lowercase")]
 pub enum ReportLayer {
     /// The parsed JSON objects (`ijson::IValue` DOM) only.
     Json,
@@ -172,18 +161,6 @@ impl ReportLayer {
 
     pub const fn records_layer(self) -> bool {
         matches!(self, Self::Records | Self::All)
-    }
-}
-
-#[cfg(feature = "mem-bench")]
-impl std::fmt::Display for ReportLayer {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let token = match self {
-            Self::Json => "json",
-            Self::Records => "records",
-            Self::All => "all",
-        };
-        f.write_str(token)
     }
 }
 
