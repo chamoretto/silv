@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Replace hand-written enum tables with strum and displaydoc derives
 - *(app)* Add say, clamp_cursor and clamp_move helpers, fold repeated sites
 - Add store record_of/source_label_of, u16_len, read_err helpers and dedupe repeated boilerplate
+- *(app)* Split AppState module into app/state submodules by concern
 
 ### Documentation
 
