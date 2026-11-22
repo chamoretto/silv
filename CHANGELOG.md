@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(app)* Centralize Tab cycling, editor editing keys and overlay scrolling
 - *(app)* Share popup frame, highlighted list and scroll-to-fit helpers
 - *(filter)* Single predicate renderer shared by plain text and colored chips
+- *(app)* Consolidate keymap platform cfg arms into one platform module
 
 ### Documentation
 

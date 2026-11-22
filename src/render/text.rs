@@ -65,6 +65,14 @@ pub fn pad_right(text: &str, column: usize) -> String {
     out
 }
 
+/// Truncates the text to `column` cells, then pads the result to the full width.
+pub fn pad(text: &str, column: usize) -> String {
+    let mut out = truncate(text, column);
+    let missing = column.saturating_sub(width(&out));
+    out.push_str(&" ".repeat(missing));
+    out
+}
+
 pub fn pad_left(text: &str, column: usize) -> String {
     let missing = column.saturating_sub(width(text));
     let mut out = String::with_capacity(text.len() + missing);

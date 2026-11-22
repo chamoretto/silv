@@ -667,13 +667,6 @@ fn to_tui_cell(cell: &Cell) -> TuiCell<'static> {
     TuiCell::from(cell.text.clone()).style(cell.style.ratatui())
 }
 
-fn pad(text: &str, column: usize) -> String {
-    let mut out = crate::render::text::truncate(text, column);
-    let missing = column.saturating_sub(crate::render::text::width(&out));
-    out.push_str(&" ".repeat(missing));
-    out
-}
-
 fn draw_status(frame: &mut Frame, state: &AppState, area: Rect) {
     let reversed = Style::default().add_modifier(Modifier::REVERSED);
     let mut spans: Vec<Span<'static>> = Vec::new();
