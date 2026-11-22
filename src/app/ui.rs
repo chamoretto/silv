@@ -31,6 +31,7 @@ use crate::app::state::RowMode;
 use crate::app::state::WIZARD_OPS;
 use crate::app::state::WizardPhase;
 use crate::cli::RenderChoice;
+use crate::filter::Piece;
 use crate::filter::Predicate;
 use crate::render::fields::Column;
 use crate::render::record_render::Cell;
@@ -311,60 +312,27 @@ fn wrap_prompt(text: &str, width: usize) -> Vec<String> {
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
 fn predicate_spans(predicate: &Predicate, base: Style) -> Vec<Span<'static>> {
     let muted = base.fg(Color::DarkGray);
-    match predicate {
-        Predicate::Leaf { field, op, matcher } => {
-            let mut spans = vec![
-                Span::styled(field.to_string(), base.fg(Color::Gray)),
-                Span::styled(
-                    if matcher.is_some() {
-                        format!(" {} ", op.token())
-                    } else {
-                        format!(" {}", op.token())
-                    },
-                    base.patch(op.style().ratatui()),
-                ),
-            ];
-            if let Some(matcher) = matcher {
-                let style = if predicate.has_glob() {
-                    base
-                } else {
-                    base.fg(Color::Gray)
-                };
-                spans.push(Span::styled(matcher.pattern.clone(), style));
-            }
-            spans
-        },
-        Predicate::All(children) => join_predicate_spans(children, "and", base),
-        Predicate::Any(children) => join_predicate_spans(children, "or", base),
-        Predicate::Not(child) => {
-            let mut spans = vec![Span::styled("not ", muted)];
-            let needs_paren = matches!(child.as_ref(), Predicate::Any(_));
-            if needs_paren {
-                spans.push(Span::styled("(", muted));
-            }
-            spans.extend(predicate_spans(child, base));
-            if needs_paren {
-                spans.push(Span::styled(")", muted));
-            }
-            spans
-        },
-    }
-}
-
-fn join_predicate_spans(children: &[Predicate], separator: &str, base: Style) -> Vec<Span<'static>> {
-    let muted = base.fg(Color::DarkGray);
+    let mut pieces = Vec::new();
+    predicate.render_pieces(&mut pieces);
     let mut spans = Vec::new();
-    for (index, child) in children.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(format!(" {separator} "), muted));
-        }
-        let needs_paren = matches!(child, Predicate::All(_) | Predicate::Any(_));
-        if needs_paren {
-            spans.push(Span::styled("(", muted));
-        }
-        spans.extend(predicate_spans(child, base));
-        if needs_paren {
-            spans.push(Span::styled(")", muted));
+    for piece in pieces {
+        match piece {
+            Piece::Field(field) => spans.push(Span::styled(field.to_string(), base.fg(Color::Gray))),
+            Piece::Op { token, style, with_pattern } => {
+                let text = if with_pattern {
+                    format!(" {token} ")
+                } else {
+                    format!(" {token}")
+                };
+                spans.push(Span::styled(text, base.patch(style.ratatui())));
+            },
+            Piece::Pattern { text, plain } => {
+                let style = if plain { base.fg(Color::Gray) } else { base };
+                spans.push(Span::styled(text.to_owned(), style));
+            },
+            Piece::Keyword(word) => spans.push(Span::styled(format!(" {word} "), muted)),
+            Piece::Not => spans.push(Span::styled("not ", muted)),
+            Piece::Paren(ch) => spans.push(Span::styled(ch.to_string(), muted)),
         }
     }
     spans

@@ -309,50 +309,101 @@ fn any_scalar_matches(record: &LogRecord, field: &FieldPath, matcher: &Matcher) 
     found
 }
 
-impl Display for Predicate {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+/// Rendering pieces of a predicate, in display order; shared by the plain
+/// `Display` form and the colored chip renderer.
+#[derive(Debug)]
+pub enum Piece<'a> {
+    Field(&'a FieldPath),
+    Op {
+        token: &'static str,
+        style: crate::render::color::Sg,
+        with_pattern: bool,
+    },
+    Pattern {
+        text: &'a str,
+        /// False when any leaf in the predicate is a glob: the pattern gets no highlight.
+        plain: bool,
+    },
+    /// A join word ("and", "or"), spaced on both sides by the renderers.
+    Keyword(&'static str),
+    /// The "not " keyword.
+    Not,
+    Paren(char),
+}
+
+impl Predicate {
+    /// Collects the rendering pieces of the predicate.
+    pub fn render_pieces<'a>(&'a self, out: &mut Vec<Piece<'a>>) {
         match self {
-            Self::All(children) => join(f, children, " and "),
-            Self::Any(children) => join(f, children, " or "),
+            Self::All(children) => render_join(children, "and", out),
+            Self::Any(children) => render_join(children, "or", out),
             Self::Not(child) => {
-                if matches!(child.as_ref(), Self::Any(_)) {
-                    write!(f, "not ({child})")
-                } else {
-                    write!(f, "not {child}")
+                out.push(Piece::Not);
+                let needs_paren = matches!(child.as_ref(), Self::Any(_));
+                if needs_paren {
+                    out.push(Piece::Paren('('));
+                }
+                child.render_pieces(out);
+                if needs_paren {
+                    out.push(Piece::Paren(')'));
                 }
             },
             Self::Leaf { field, op, matcher } => {
-                write!(f, "{field}{}", op.token())?;
+                out.push(Piece::Field(field));
+                out.push(Piece::Op {
+                    token: op.token(),
+                    style: op.style(),
+                    with_pattern: matcher.is_some(),
+                });
                 if let Some(matcher) = matcher {
-                    let pattern = &matcher.pattern;
-                    if pattern.contains(' ') {
-                        write!(f, "\"{pattern}\"")
-                    } else {
-                        write!(f, "{pattern}")
-                    }
-                } else {
-                    Ok(())
+                    out.push(Piece::Pattern {
+                        text: &matcher.pattern,
+                        plain: !self.has_glob(),
+                    });
                 }
             },
         }
     }
 }
 
-fn join(f: &mut Formatter<'_>, children: &[Predicate], sep: &str) -> std::fmt::Result {
+fn render_join<'a>(children: &'a [Predicate], separator: &'static str, out: &mut Vec<Piece<'a>>) {
     for (index, child) in children.iter().enumerate() {
         if index > 0 {
-            f.write_str(sep)?;
+            out.push(Piece::Keyword(separator));
         }
         let needs_paren = matches!(child, Predicate::All(_) | Predicate::Any(_));
         if needs_paren {
-            f.write_str("(")?;
+            out.push(Piece::Paren('('));
         }
-        write!(f, "{child}")?;
+        child.render_pieces(out);
         if needs_paren {
-            f.write_str(")")?;
+            out.push(Piece::Paren(')'));
         }
     }
-    Ok(())
+}
+
+impl Display for Predicate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut pieces = Vec::new();
+        self.render_pieces(&mut pieces);
+        for piece in pieces {
+            match piece {
+                Piece::Field(field) => write!(f, "{field}")?,
+                Piece::Op { token, .. } => write!(f, "{token}")?,
+                Piece::Pattern { text, .. } => {
+                    if text.contains(' ') {
+                        write!(f, "\"{text}\"")?;
+                    } else {
+                        write!(f, "{text}")?;
+                    }
+                },
+                Piece::Keyword(word) => write!(f, " {word} ")?,
+                Piece::Not => f.write_str("not ")?,
+                Piece::Paren(ch) => write!(f, "{ch}")?,
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]

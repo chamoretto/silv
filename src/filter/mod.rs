@@ -9,6 +9,7 @@ use miette::Result;
 pub use predicate::LeafOp;
 pub use predicate::MatchKind;
 pub use predicate::Matcher;
+pub use predicate::Piece;
 pub use predicate::Predicate;
 pub use search::SearchScope;
 pub use search::SearchSpec;
