@@ -79,6 +79,28 @@ pub(super) fn clamp_move(cursor: &mut usize, len: usize, delta: isize) {
     *cursor = usize::try_from((current + delta).clamp(0, last)).unwrap_or(0);
 }
 
+/// Overlay scroll keys: arrows step a line, Page keys step a page.
+pub(super) fn page_scroll(key: KeyCode, page: isize) -> Option<isize> {
+    match key {
+        KeyCode::Down => Some(1),
+        KeyCode::Up => Some(-1),
+        KeyCode::PageDown => Some(page),
+        KeyCode::PageUp => Some(-page),
+        _ => None,
+    }
+}
+
+/// Rows and changelog scroll keys: the page keys plus the vim set.
+pub(super) fn vim_scroll(key: KeyCode, page: isize) -> Option<isize> {
+    match key {
+        KeyCode::Char('j') => Some(1),
+        KeyCode::Char('k') => Some(-1),
+        KeyCode::Char('f') => Some(page),
+        KeyCode::Char('b') => Some(-page),
+        _ => page_scroll(key, page),
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, EnumIter, IntoStaticStr)]
 pub enum Focus {
     #[strum(to_string = "search")]
@@ -629,6 +651,23 @@ impl AppState {
             },
             _ => {},
         }
+        if !self.focus_is_wizard() {
+            // Tab walks the focus ring from every plain focus; only the wizard
+            // binds it to its own lists.
+            match key.bind {
+                KeyCode::Tab => {
+                    self.cycle_focus(1);
+                    self.dirty = true;
+                    return;
+                },
+                KeyCode::BackTab => {
+                    self.cycle_focus(-1);
+                    self.dirty = true;
+                    return;
+                },
+                _ => {},
+            }
+        }
         match self.nav.focus {
             Focus::Search => self.handle_search_key(key),
             Focus::FilterInput => self.handle_filter_key(key),
@@ -642,6 +681,11 @@ impl AppState {
 
     const fn focus_is_text(&self) -> bool {
         matches!(self.nav.focus, Focus::Search | Focus::FilterInput)
+    }
+
+    /// True while the filter wizard owns the keys of the filter input.
+    const fn focus_is_wizard(&self) -> bool {
+        matches!(self.nav.focus, Focus::FilterInput) && self.overlays.wizard.is_some()
     }
 
     fn handle_header_key(&mut self, key: KeyPress) {
@@ -689,8 +733,6 @@ impl AppState {
                     self.nav.focus = Focus::Rows;
                 }
             },
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Down | KeyCode::Char('j') => self.nav.focus = Focus::Rows,
             _ => {},
         }
@@ -700,12 +742,6 @@ impl AppState {
         let picking = self.nav.row_mode == RowMode::Pick;
         match key.bind {
             KeyCode::Char('q') => self.quit(),
-            KeyCode::Char('j') | KeyCode::Down => self.move_cursor(1),
-            KeyCode::Char('k') | KeyCode::Up => self.move_cursor(-1),
-            KeyCode::PageDown => self.page(1, self.page_height()),
-            KeyCode::PageUp => self.page(-1, self.page_height()),
-            KeyCode::Char('f') => self.page(1, self.page_height()),
-            KeyCode::Char('b') => self.page(-1, self.page_height()),
             KeyCode::Char('g') => self.go_first(),
             KeyCode::Char('G') => self.go_last(),
             KeyCode::Enter => {
@@ -758,12 +794,15 @@ impl AppState {
                     self.nav.focus = Focus::FilterChips;
                 }
             },
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Char('/') => self.nav.focus = Focus::Search,
             KeyCode::Char('F') => self.open_filter_wizard(),
             KeyCode::Char('u') if !self.config.no_update => self.open_repo_prompt(),
-            _ => {},
+            _ => {
+                let page = isize::try_from(self.page_height()).unwrap_or(1);
+                if let Some(delta) = vim_scroll(key.bind, page) {
+                    self.move_cursor(delta);
+                }
+            },
         }
     }
 

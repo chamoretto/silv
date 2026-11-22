@@ -136,39 +136,45 @@ impl AppState {
 
     /// Applies the focused menu action to the focused field.
     pub fn detail_apply_menu(&mut self) {
-        let (Some(detail), Some(menu)) =
-            (self.overlays.detail.clone(), self.overlays.detail.as_ref().and_then(|d| d.menu))
+        let menu = self.overlays.detail.as_ref().and_then(|detail| detail.menu);
+        let Some(action) = menu.and_then(|menu| MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1)))
         else {
             return;
         };
-        let Some(action) = MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1)) else {
-            return;
-        };
-        let Some(field) = detail.fields.get(detail.cursor) else {
-            return;
-        };
-        let label = field.label.clone();
-        let value = field.value.clone();
-        let path = field.path.clone().or_else(|| FieldPath::parse(&label).ok());
-        let Some(path) = path else {
-            self.message = Some(format!("cannot use `{label}` as a field path"));
+        let Some((path, value)) = self.detail_field_target() else {
             return;
         };
         if let Some(detail) = self.overlays.detail.as_mut() {
             detail.menu = None;
         }
+        self.detail_run_action(action, path, &value);
+    }
+
+    /// The focused field of the detail view as (path, value); explains why a
+    /// label is unusable as a field path.
+    fn detail_field_target(&mut self) -> Option<(FieldPath, String)> {
+        let field = self.detail_selected_field().cloned()?;
+        let label = field.label;
+        let Some(path) = field.path.or_else(|| FieldPath::parse(&label).ok()) else {
+            self.message = Some(format!("cannot use `{label}` as a field path"));
+            return None;
+        };
+        Some((path, field.value))
+    }
+
+    fn detail_run_action(&mut self, action: MenuAction, path: FieldPath, value: &str) {
         match action {
             MenuAction::ToggleColumn => self.toggle_column(path),
             MenuAction::FilterEq => {
-                let probe = truncate_probe(&value);
+                let probe = truncate_probe(value);
                 self.add_filter_from_op(path, LeafOp::Eq, Some(probe));
             },
             MenuAction::FilterNeq => {
-                let probe = truncate_probe(&value);
+                let probe = truncate_probe(value);
                 self.add_filter_from_op(path, LeafOp::Neq, Some(probe));
             },
             MenuAction::FilterContains => {
-                let probe = truncate_probe(&value);
+                let probe = truncate_probe(value);
                 self.add_filter_from_op(path, LeafOp::Contains, Some(probe));
             },
             MenuAction::Exists => self.add_filter_from_op(path, LeafOp::Exists, None),
@@ -261,12 +267,7 @@ impl AppState {
     }
     pub(super) fn handle_detail_key(&mut self, key: KeyPress) {
         match key.bind {
-            KeyCode::Esc => self.close_detail(),
-            KeyCode::Char('q') => self.close_detail(),
-            KeyCode::Char('j') | KeyCode::Down => self.detail_move(1),
-            KeyCode::Char('k') | KeyCode::Up => self.detail_move(-1),
-            KeyCode::PageDown => self.detail_move(isize::try_from(self.page_height()).unwrap_or(1)),
-            KeyCode::PageUp => self.detail_move(-isize::try_from(self.page_height()).unwrap_or(1)),
+            KeyCode::Esc | KeyCode::Char('q') => self.close_detail(),
             KeyCode::Enter => {
                 if self
                     .overlays
@@ -286,9 +287,18 @@ impl AppState {
             KeyCode::Char('e') => self.detail_apply_menu_action(MenuAction::Exists),
             KeyCode::Char('E') => self.detail_apply_menu_action(MenuAction::NotExists),
             KeyCode::Char('v') => self.detail_toggle_json(),
-            KeyCode::Tab => self.detail_move(1),
-            KeyCode::BackTab => self.detail_move(-1),
-            _ => {},
+            _ => {
+                // Scrolling: arrows, the j/k pair and Page keys; Tab cycles fields.
+                let page = isize::try_from(self.page_height()).unwrap_or(1);
+                let delta = match key.bind {
+                    KeyCode::Char('j') | KeyCode::Tab => Some(1),
+                    KeyCode::Char('k') | KeyCode::BackTab => Some(-1),
+                    _ => page_scroll(key.bind, page),
+                };
+                if let Some(delta) = delta {
+                    self.detail_move(delta);
+                }
+            },
         }
     }
 
@@ -298,37 +308,16 @@ impl AppState {
             self.detail_apply_menu();
             return;
         }
-        let Some(field) = self.detail_selected_field().cloned() else {
+        let Some((path, value)) = self.detail_field_target() else {
             return;
         };
-        let label = field.label;
-        let value = field.value;
-        let Some(path) = field.path.or_else(|| FieldPath::parse(&label).ok()) else {
-            self.message = Some(format!("cannot use `{label}` as a field path"));
-            return;
-        };
-        match action {
-            MenuAction::ToggleColumn => self.toggle_column(path),
-            MenuAction::FilterEq => {
-                let probe = truncate_probe(&value);
-                self.add_filter_from_op(path, LeafOp::Eq, Some(probe));
-            },
-            MenuAction::FilterNeq => {
-                let probe = truncate_probe(&value);
-                self.add_filter_from_op(path, LeafOp::Neq, Some(probe));
-            },
-            MenuAction::FilterContains => {
-                let probe = truncate_probe(&value);
-                self.add_filter_from_op(path, LeafOp::Contains, Some(probe));
-            },
-            MenuAction::Exists => self.add_filter_from_op(path, LeafOp::Exists, None),
-            MenuAction::NotExists => self.add_filter_from_op(path, LeafOp::NotExists, None),
-        }
+        self.detail_run_action(action, path, &value);
     }
 
     pub(super) fn handle_picker_key(&mut self, key: KeyPress) {
         match key.bind {
             KeyCode::Esc => self.close_picker(),
+            KeyCode::Tab => self.cycle_focus(1),
             // Space toggles like Enter; it must be matched before the catch-all char arm.
             KeyCode::Char(' ') => self.picker_toggle(),
             KeyCode::Char(_) => {
@@ -346,12 +335,21 @@ impl AppState {
                 self.picker_filter();
             },
             KeyCode::Enter => self.picker_toggle(),
-            KeyCode::Down => self.picker_move(1),
-            KeyCode::Up => self.picker_move(-1),
-            KeyCode::PageDown => self.picker_move(isize::try_from(self.page_height()).unwrap_or(1)),
-            KeyCode::PageUp => self.picker_move(-isize::try_from(self.page_height()).unwrap_or(1)),
-            KeyCode::Tab => self.cycle_focus(1),
-            _ => {},
+            _ => {
+                let page = isize::try_from(self.page_height()).unwrap_or(1);
+                if let Some(delta) = page_scroll(key.bind, page) {
+                    self.picker_move(delta);
+                    return;
+                }
+                let edited = self
+                    .overlays
+                    .picker
+                    .as_mut()
+                    .is_some_and(|picker| picker.input.handle_edit_key(key));
+                if edited {
+                    self.picker_filter();
+                }
+            },
         }
     }
 }

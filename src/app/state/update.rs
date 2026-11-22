@@ -38,8 +38,6 @@ impl AppState {
             KeyCode::Char('q') => self.quit(),
             KeyCode::Left | KeyCode::Char('h') => self.update.focus_index = 0,
             KeyCode::Right | KeyCode::Char('l') => self.update.focus_index = 1,
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
             KeyCode::Esc => self.nav.focus = Focus::Rows,
             KeyCode::Enter => {
                 if self.update.focus_index == 0 {
@@ -287,13 +285,13 @@ impl AppState {
             .unwrap_or(1);
         match key.bind {
             KeyCode::Esc | KeyCode::Char('q') => self.close_changelog(),
-            KeyCode::Char('j') | KeyCode::Down => self.changelog_move(1),
-            KeyCode::Char('k') | KeyCode::Up => self.changelog_move(-1),
-            KeyCode::Char('f') | KeyCode::PageDown => self.changelog_move(page),
-            KeyCode::Char('b') | KeyCode::PageUp => self.changelog_move(-page),
             KeyCode::Char('g') => self.changelog_first(),
             KeyCode::Char('G') => self.changelog_last(),
-            _ => {},
+            _ => {
+                if let Some(delta) = vim_scroll(key.bind, page) {
+                    self.changelog_move(delta);
+                }
+            },
         }
     }
 
@@ -302,24 +300,11 @@ impl AppState {
             return;
         };
         match key.bind {
-            KeyCode::Char(_) => {
-                if let Some(ch) = key.typed_char() {
-                    prompt.editor.insert(ch);
-                }
-            },
-            KeyCode::Backspace => {
-                prompt.editor.backspace();
-            },
-            KeyCode::Delete => {
-                prompt.editor.delete();
-            },
-            KeyCode::Left => prompt.editor.left(),
-            KeyCode::Right => prompt.editor.right(),
-            KeyCode::Home => prompt.editor.home(),
-            KeyCode::End => prompt.editor.end(),
             KeyCode::Enter => self.submit_repo_url(),
             KeyCode::Esc => self.close_repo_prompt(),
-            _ => {},
+            _ => {
+                prompt.editor.handle_edit_key(key);
+            },
         }
     }
 }

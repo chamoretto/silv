@@ -421,32 +421,6 @@ impl AppState {
     }
     pub(super) fn handle_search_key(&mut self, key: KeyPress) {
         match key.bind {
-            KeyCode::Char(_) => {
-                if let Some(ch) = key.typed_char() {
-                    self.query.search_input.insert(ch);
-                }
-                self.sync_search_from_input();
-            },
-            KeyCode::Backspace => {
-                self.query.search_input.backspace();
-                self.sync_search_from_input();
-            },
-            KeyCode::Delete => {
-                self.query.search_input.delete();
-                self.sync_search_from_input();
-            },
-            KeyCode::Left => self.query.search_input.left(),
-            KeyCode::Right => self.query.search_input.right(),
-            KeyCode::Home => self.query.search_input.home(),
-            KeyCode::End => self.query.search_input.end(),
-            KeyCode::Up => {
-                self.query.search_input.history_previous();
-                self.sync_search_from_input();
-            },
-            KeyCode::Down => {
-                self.query.search_input.history_next();
-                self.sync_search_from_input();
-            },
             KeyCode::Enter => self.commit_search(),
             KeyCode::Esc => {
                 if !self.query.search_input.is_empty() {
@@ -455,9 +429,19 @@ impl AppState {
                 }
                 self.nav.focus = Focus::Rows;
             },
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
-            _ => {},
+            KeyCode::Up => {
+                self.query.search_input.history_previous();
+                self.sync_search_from_input();
+            },
+            KeyCode::Down => {
+                self.query.search_input.history_next();
+                self.sync_search_from_input();
+            },
+            _ => {
+                if self.query.search_input.handle_edit_key(key) {
+                    self.sync_search_from_input();
+                }
+            },
         }
     }
 
@@ -482,35 +466,26 @@ impl AppState {
             return;
         }
         match key.bind {
-            KeyCode::Char(_) => {
-                if let Some(ch) = key.typed_char() {
-                    self.query.filter_input.insert(ch);
-                }
+            KeyCode::Enter => self.submit_filter_input(),
+            KeyCode::Esc => {
+                self.query.filter_input.clear();
+                self.nav.focus = Focus::Rows;
             },
             KeyCode::Backspace => {
+                // An empty input hands the focus back to the chips.
                 if !self.query.filter_input.backspace() && self.nav.focus == Focus::FilterInput {
                     self.nav.focus = Focus::FilterChips;
                 }
             },
-            KeyCode::Delete => self.query.filter_input.delete(),
-            KeyCode::Left => self.query.filter_input.left(),
-            KeyCode::Right => self.query.filter_input.right(),
-            KeyCode::Home => self.query.filter_input.home(),
-            KeyCode::End => self.query.filter_input.end(),
             KeyCode::Up => {
                 self.query.filter_input.history_previous();
             },
             KeyCode::Down => {
                 self.query.filter_input.history_next();
             },
-            KeyCode::Enter => self.submit_filter_input(),
-            KeyCode::Esc => {
-                self.query.filter_input.clear();
-                self.nav.focus = Focus::Rows;
+            _ => {
+                self.query.filter_input.handle_edit_key(key);
             },
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
-            _ => {},
         }
     }
 
@@ -518,13 +493,14 @@ impl AppState {
     fn handle_wizard_key(&mut self, key: KeyPress) {
         let phase = self.overlays.wizard.as_ref().map(|wizard| wizard.phase);
         match (phase, key.bind) {
-            (Some(WizardPhase::Field), KeyCode::Char(_)) => {
-                if let Some(ch) = key.typed_char() {
-                    self.query.filter_input.insert(ch);
-                }
-                self.wizard_recompute();
-            },
+            (Some(_), KeyCode::Enter) => self.wizard_enter(),
+            (Some(_), KeyCode::Esc) => self.wizard_back(),
+            (Some(WizardPhase::Field | WizardPhase::Operator), KeyCode::Up) => self.wizard_move(-1),
+            (Some(WizardPhase::Field | WizardPhase::Operator), KeyCode::Down) => self.wizard_move(1),
+            (Some(WizardPhase::Field | WizardPhase::Operator), KeyCode::Tab) => self.wizard_move(1),
+            (Some(WizardPhase::Field | WizardPhase::Operator), KeyCode::BackTab) => self.wizard_move(-1),
             (Some(WizardPhase::Field), KeyCode::Backspace) => {
+                // An empty field steps the wizard back; otherwise it edits.
                 if self.query.filter_input.is_empty() {
                     self.wizard_back();
                 } else {
@@ -532,27 +508,9 @@ impl AppState {
                     self.wizard_recompute();
                 }
             },
-            (Some(WizardPhase::Field), KeyCode::Left) => self.query.filter_input.left(),
-            (Some(WizardPhase::Field), KeyCode::Right) => self.query.filter_input.right(),
-            (Some(WizardPhase::Field), KeyCode::Home) => self.query.filter_input.home(),
-            (Some(WizardPhase::Field), KeyCode::End) => self.query.filter_input.end(),
-            (Some(WizardPhase::Field), KeyCode::Up) => self.wizard_move(-1),
-            (Some(WizardPhase::Field), KeyCode::Down) => self.wizard_move(1),
-            (Some(WizardPhase::Field), KeyCode::Tab) => self.wizard_move(1),
-            (Some(WizardPhase::Field), KeyCode::BackTab) => self.wizard_move(-1),
-            (Some(WizardPhase::Operator), KeyCode::Char(_)) => {
-                if let Some(ch) = key.bind_char() {
-                    self.wizard_op_shortcut(ch);
-                }
-            },
-            (Some(WizardPhase::Operator), KeyCode::Up) => self.wizard_move(-1),
-            (Some(WizardPhase::Operator), KeyCode::Down) => self.wizard_move(1),
-            (Some(WizardPhase::Operator), KeyCode::Tab) => self.wizard_move(1),
-            (Some(WizardPhase::Operator), KeyCode::BackTab) => self.wizard_move(-1),
-            (Some(WizardPhase::Operator), KeyCode::Backspace) => self.wizard_back(),
-            (Some(WizardPhase::Pattern), KeyCode::Char(_)) => {
-                if let Some(ch) = key.typed_char() {
-                    self.query.filter_input.insert(ch);
+            (Some(WizardPhase::Field), _) => {
+                if self.query.filter_input.handle_edit_key(key) {
+                    self.wizard_recompute();
                 }
             },
             (Some(WizardPhase::Pattern), KeyCode::Backspace) => {
@@ -562,13 +520,15 @@ impl AppState {
                     self.query.filter_input.backspace();
                 }
             },
-            (Some(WizardPhase::Pattern), KeyCode::Left) => self.query.filter_input.left(),
-            (Some(WizardPhase::Pattern), KeyCode::Right) => self.query.filter_input.right(),
-            (Some(WizardPhase::Pattern), KeyCode::Home) => self.query.filter_input.home(),
-            (Some(WizardPhase::Pattern), KeyCode::End) => self.query.filter_input.end(),
-            (Some(WizardPhase::Pattern), KeyCode::Delete) => self.query.filter_input.delete(),
-            (Some(_), KeyCode::Enter) => self.wizard_enter(),
-            (Some(_), KeyCode::Esc) => self.wizard_back(),
+            (Some(WizardPhase::Pattern), _) => {
+                self.query.filter_input.handle_edit_key(key);
+            },
+            (Some(WizardPhase::Operator), KeyCode::Char(_)) => {
+                if let Some(ch) = key.bind_char() {
+                    self.wizard_op_shortcut(ch);
+                }
+            },
+            (Some(WizardPhase::Operator), KeyCode::Backspace) => self.wizard_back(),
             _ => {},
         }
         self.dirty = true;
@@ -591,8 +551,6 @@ impl AppState {
             KeyCode::Char('i') | KeyCode::Char('a') => self.open_filter_wizard(),
             KeyCode::Char('x') => self.clear_filters(),
             KeyCode::Esc => self.nav.focus = Focus::Rows,
-            KeyCode::Tab => self.cycle_focus(1),
-            KeyCode::BackTab => self.cycle_focus(-1),
             _ => {},
         }
     }

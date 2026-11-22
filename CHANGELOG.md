@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add store record_of/source_label_of, u16_len, read_err helpers and dedupe repeated boilerplate
 - *(app)* Split AppState module into app/state submodules by concern
 - *(app)* Group AppState fields into data-only substates
+- *(app)* Centralize Tab cycling, editor editing keys and overlay scrolling
 
 ### Documentation
 
