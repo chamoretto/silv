@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- git-cliff: end of header -->
 
+## [Unreleased]
+
+### Documentation
+
+- *(agents)* Record release fixed-point mechanics and tag push constraints
+
 ## [0.3.1] - 2026-11-22
 
 ### Changed
