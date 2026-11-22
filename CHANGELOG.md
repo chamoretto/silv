@@ -7,15 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- git-cliff: end of header -->
 
-## [Unreleased]
+## [0.3.1] - 2026-11-22
 
 ### Changed
 
-- Group AppState into substates, split state module, remove duplication ([#9](https://github.com/chamoretto/silv/issues/9))
+- Group AppState into substates, split state module, remove duplication ([#9](https://github.com/chamoretto/silv/issues/9)) ([7bf9955](https://github.com/chamoretto/silv/commit/7bf99559997c9d478ffab63ac0b0fc2e81b52773))
 
 ### Documentation
 
-- *(agents)* Release-prep amends must guard the post-commit hook ([#8](https://github.com/chamoretto/silv/issues/8))
+- *(agents)* Release-prep amends must guard the post-commit hook ([#8](https://github.com/chamoretto/silv/issues/8)) ([4aa5949](https://github.com/chamoretto/silv/commit/4aa594964de312e8e4ffc8561febaf71da174c8b))
 
 ## [0.3.0] - 2026-11-21
 
@@ -157,7 +157,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Track Cargo.lock for reproducible release builds ([24aa87e](https://github.com/chamoretto/silv/commit/24aa87eb3a9574be2f754ea364395ae344bc737a))
 
 
-[Unreleased]: https://github.com/chamoretto/silv/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/chamoretto/silv/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/chamoretto/silv/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/chamoretto/silv/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/chamoretto/silv/compare/v0.1.4...v0.2.0
 [0.1.4]: https://github.com/chamoretto/silv/compare/v0.1.3...v0.1.4
