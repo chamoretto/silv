@@ -11,31 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Replace hand-written enum tables with strum and displaydoc derives
-- *(app)* Add say, clamp_cursor and clamp_move helpers, fold repeated sites
-- Add store record_of/source_label_of, u16_len, read_err helpers and dedupe repeated boilerplate
-- *(app)* Split AppState module into app/state submodules by concern
-- *(app)* Group AppState fields into data-only substates
-- *(app)* Centralize Tab cycling, editor editing keys and overlay scrolling
-- *(app)* Share popup frame, highlighted list and scroll-to-fit helpers
-- *(filter)* Single predicate renderer shared by plain text and colored chips
-- *(app)* Consolidate keymap platform cfg arms into one platform module
-- *(ui)* Share pad, display-width span measurement and editor label helpers
-- *(app)* Shared visible_rows window and mouse hit test helpers
-- *(cli)* Strum Display for token enums RenderChoice and ReportLayer
+- Group AppState into substates, split state module, remove duplication ([#9](https://github.com/chamoretto/silv/issues/9))
 
 ### Documentation
 
 - *(agents)* Release-prep amends must guard the post-commit hook ([#8](https://github.com/chamoretto/silv/issues/8))
-
-### Testing
-
-- *(update)* Assert the replaced binary version via CARGO_PKG_VERSION
-
-### Styling
-
-- Cargo fmt
-- Cargo fmt
 
 ## [0.3.0] - 2026-11-21
 
