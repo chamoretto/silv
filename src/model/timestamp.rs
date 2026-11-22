@@ -323,9 +323,7 @@ fn parse_epoch(text: &str) -> Option<i128> {
 mod tests {
     use super::*;
 
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::ivalue;
 
     #[test]
     fn epoch_units_are_detected_from_magnitude() {

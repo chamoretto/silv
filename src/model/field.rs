@@ -375,13 +375,8 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn map(text: &str) -> IValue {
-        serde_json::from_str(text).expect("test fixture is a JSON object")
-    }
-
-    fn value(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("test fixture value")
-    }
+    use crate::fixtures::ivalue as value;
+    use crate::fixtures::map;
 
     #[test]
     fn parses_plain_and_quoted_paths() {

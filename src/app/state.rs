@@ -480,11 +480,7 @@ impl AppState {
     }
 
     pub fn source_label(&self, record: &crate::model::record::LogRecord) -> &str {
-        self.store
-            .sources()
-            .get(usize::try_from(record.source).unwrap_or(usize::MAX))
-            .map(|source| source.label.as_str())
-            .unwrap_or("<unknown>")
+        self.store.source_label_of(record)
     }
 
     pub fn set_search_text(&mut self, text: &str) {
@@ -1116,9 +1112,7 @@ impl AppState {
                 selected: self.columns_contain(&info.path),
             })
             .collect();
-        let matches: Vec<usize> = (0..u32::try_from(fields.len()).unwrap_or(u32::MAX))
-            .filter_map(|i| usize::try_from(i).ok())
-            .collect();
+        let matches: Vec<usize> = (0..fields.len()).collect();
         self.picker = Some(PickerState {
             fields,
             matches,

@@ -4,6 +4,11 @@ use unicode_width::UnicodeWidthChar;
 
 pub const ELLIPSIS: &str = "..";
 
+/// A `usize` length as `u16`, saturating at the terminal coordinate range.
+pub fn u16_len(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
 /// Terminal width of a string, control characters counted as zero.
 pub fn width(text: &str) -> usize {
     text.chars()

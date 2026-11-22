@@ -223,16 +223,11 @@ mod tests {
     use crate::model::level::Level;
     use serde_json::json;
 
-    fn aliases() -> FieldAliases {
-        FieldAliases::with_defaults(&[], &[], &[]).expect("defaults")
-    }
+    use crate::fixtures::aliases;
+    use crate::fixtures::ivalue;
 
     fn parse(text: &str) -> LogRecord {
         parse_line(0, 1, 0, text.as_bytes(), &aliases(), &PlainOptions::default()).expect("parses")
-    }
-
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
     }
 
     #[test]

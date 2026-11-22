@@ -26,6 +26,7 @@ use crate::app::state::DetailState;
 use crate::app::state::MenuAction;
 use crate::app::ui::key_spans;
 use crate::render::text::truncate;
+use crate::render::text::u16_len;
 use crate::render::text::width;
 
 const FOOTER: &str =
@@ -134,7 +135,7 @@ fn draw_fields(frame: &mut Frame, state: &AppState, detail: &DetailState, area: 
         Table::new(
             rows,
             [
-                Constraint::Length(u16::try_from(label_width).unwrap_or(u16::MAX)),
+                Constraint::Length(u16_len(label_width)),
                 Constraint::Fill(1),
             ],
         )
@@ -148,7 +149,7 @@ fn draw_fields(frame: &mut Frame, state: &AppState, detail: &DetailState, area: 
 
 fn draw_menu(frame: &mut Frame, detail: &DetailState, area: Rect) {
     let width = 34u16;
-    let height = u16::try_from(MenuAction::COUNT + 2).unwrap_or(u16::MAX);
+    let height = u16_len(MenuAction::COUNT + 2);
     let menu_area = Rect {
         x: area.x + area.width.saturating_sub(width) / 2,
         y: area.y + area.height.saturating_sub(height) / 2,

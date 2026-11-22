@@ -214,10 +214,10 @@ pub fn sort_indices(store: &LogStore, indices: &mut [u32], sorts: &[SortSpec]) {
 }
 
 fn compare_column(store: &LogStore, a: u32, b: u32, column: &Column) -> Ordering {
-    let Some(left) = store.record(usize::try_from(a).unwrap_or(usize::MAX)) else {
+    let Some(left) = store.record_of(a) else {
         return Ordering::Equal;
     };
-    let Some(right) = store.record(usize::try_from(b).unwrap_or(usize::MAX)) else {
+    let Some(right) = store.record_of(b) else {
         return Ordering::Equal;
     };
     match column {
@@ -258,14 +258,10 @@ pub const fn matcher_kind_name(kind: MatchKind) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::LogStore;
     use crate::model::level::Level;
-    use crate::model::record::FieldAliases;
 
-    fn record(text: &str) -> LogRecord {
-        let object = serde_json::from_str(text).expect("fixture object");
-        LogRecord::from_object(0, 1, 0, object, &FieldAliases::with_defaults(&[], &[], &[]).expect("aliases"))
-    }
+    use crate::fixtures::record;
+    use crate::fixtures::store_of;
 
     #[test]
     fn pseudo_columns_are_recognised() {
@@ -325,18 +321,6 @@ mod tests {
         let store = store_of(&["{\"a\":1,\"b\":2,\"c\":3}"]);
         let columns = resolve_columns(&config, &store);
         assert_eq!(columns.iter().map(Column::label).collect::<Vec<_>>(), vec!["a", "b"]);
-    }
-
-    fn store_of(records: &[&str]) -> LogStore {
-        let config = Config::stub();
-        let bundle = crate::parse::input::InputBundle {
-            sources: vec![crate::parse::input::RawSource::for_test(
-                "t.jsonl",
-                records.join("\n").into_bytes(),
-            )],
-            read_stdin: false,
-        };
-        LogStore::build(&bundle, &config).expect("builds")
     }
 
     #[test]

@@ -29,7 +29,7 @@ impl View {
     pub fn record<'a>(&self, store: &'a LogStore, position: usize) -> Option<&'a crate::model::record::LogRecord> {
         self.rows
             .get(position)
-            .and_then(|index| store.record(usize::try_from(*index).unwrap_or(usize::MAX)))
+            .and_then(|index| store.record_of(*index))
     }
 }
 
@@ -78,20 +78,12 @@ fn combine(filters: &[Predicate], search: Option<&Predicate>) -> Predicate {
 fn filter_rows(store: &LogStore, predicate: &Predicate) -> Vec<u32> {
     if store.len() <= PARALLEL_THRESHOLD {
         (0..u32::try_from(store.len()).unwrap_or(u32::MAX))
-            .filter(|index| {
-                store
-                    .record(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .is_some_and(|record| predicate.eval(record))
-            })
+            .filter(|index| store.record_of(*index).is_some_and(|record| predicate.eval(record)))
             .collect()
     } else {
         (0..u32::try_from(store.len()).unwrap_or(u32::MAX))
             .into_par_iter()
-            .filter(|index| {
-                store
-                    .record(usize::try_from(*index).unwrap_or(usize::MAX))
-                    .is_some_and(|record| predicate.eval(record))
-            })
+            .filter(|index| store.record_of(*index).is_some_and(|record| predicate.eval(record)))
             .collect()
     }
 }
@@ -99,24 +91,12 @@ fn filter_rows(store: &LogStore, predicate: &Predicate) -> Vec<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::Config;
     use crate::cli::SortDir;
     use crate::filter::MatchKind;
     use crate::filter::Matcher;
     use crate::filter::SearchSpec;
+    use crate::fixtures::store_of;
     use crate::model::field::FieldPath;
-
-    fn store_of(records: &[&str]) -> LogStore {
-        let config = Config::stub();
-        let bundle = crate::parse::input::InputBundle {
-            sources: vec![crate::parse::input::RawSource::for_test(
-                "t.jsonl",
-                records.join("\n").into_bytes(),
-            )],
-            read_stdin: false,
-        };
-        LogStore::build(&bundle, &config).expect("builds")
-    }
 
     #[test]
     fn filters_and_windows_compose() {

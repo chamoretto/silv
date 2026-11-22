@@ -39,6 +39,7 @@ use crate::render::record_render::render_record;
 use crate::render::record_render::resolve_render;
 use crate::render::record_render::table_cells;
 use crate::render::table as table_layout;
+use crate::render::text::u16_len;
 
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
@@ -190,7 +191,7 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect, chips: &ChipL
             let brackets = base.fg(Color::DarkGray);
             let body = predicate_spans(&state.filters[index], base);
             let body_width: usize = body.iter().map(span_width).sum();
-            let length = u16::try_from(body_width + 3).unwrap_or(u16::MAX);
+            let length = u16_len(body_width + 3);
             spans.push(Span::styled("[", brackets));
             spans.extend(body);
             spans.push(Span::styled("] ", brackets));
@@ -562,7 +563,7 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
         .map(|index| {
             state
                 .store
-                .record(usize::try_from(*index).unwrap_or(usize::MAX))
+                .record_of(*index)
                 .map(|record| table_cells(record, &state.columns, state.source_label(record), &state.config))
                 .unwrap_or_default()
         })
@@ -603,7 +604,7 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
         rows,
         widths
             .iter()
-            .map(|w| Constraint::Length(u16::try_from(*w).unwrap_or(u16::MAX))),
+            .map(|w| Constraint::Length(u16_len(*w))),
     )
     .header(header_row)
     .column_spacing(2)
@@ -626,7 +627,7 @@ fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: Ren
         .map(|index| {
             let cells = state
                 .store
-                .record(usize::try_from(index).unwrap_or(usize::MAX))
+                .record_of(index)
                 .map(|record| {
                     let cells = render_record(record, mode, &state.columns, state.source_label(record), &state.config);
                     highlight(cells, &state.regexes)
@@ -656,7 +657,7 @@ fn keep_cursor_visible(state: &mut AppState, body_height: usize) {
     if body_height == 0 {
         return;
     }
-    let body = u16::try_from(body_height).unwrap_or(u16::MAX);
+    let body = u16_len(body_height);
     if state.cursor < state.rows_scroll {
         state.rows_scroll = state.cursor;
     } else if state.cursor >= state.rows_scroll + body_height {
@@ -703,7 +704,7 @@ fn record_header_cells(state: &mut AppState, widths: &[usize], area: Rect) {
     state.header_cells.clear();
     let mut x = 0u16;
     for (index, width) in widths.iter().enumerate() {
-        let width_u16 = u16::try_from(*width).unwrap_or(u16::MAX);
+        let width_u16 = u16_len(*width);
         let start = x;
         let end = start.saturating_add(width_u16.saturating_sub(1));
         state.header_cells.push((start, end, index));
@@ -893,12 +894,7 @@ fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
 }
 
 fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let latest = state
-        .update_available
-        .as_ref()
-        .and_then(|notes| notes.first())
-        .map(|note| note.version.clone())
-        .unwrap_or_default();
+    let latest = state.update_latest().unwrap_or_default().to_owned();
     let current = crate::update::current_version();
     let block = Block::bordered()
         .title(format!(" changes: silv {current} -> {latest} "))
@@ -910,7 +906,7 @@ fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
     let scroll = changelog_scroll(state, usize::from(inner.width), usize::from(inner.height));
     let lines = state.changelog.as_ref().map(|c| c.lines.clone()).unwrap_or_default();
-    let paragraph = Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
+    let paragraph = Paragraph::new(lines).scroll((u16_len(scroll), 0));
     frame.render_widget(paragraph, inner);
 }
 

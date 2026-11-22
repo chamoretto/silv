@@ -87,9 +87,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::ivalue;
 
     fn text(value: &IValue, pretty: bool) -> String {
         let mut out = Vec::new();

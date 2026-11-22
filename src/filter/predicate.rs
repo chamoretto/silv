@@ -42,6 +42,13 @@ enum Compiled {
     Regex(regex::Regex),
 }
 
+/// Case-configured regex build, shared by matchers and search highlighting.
+pub(crate) fn compile_ci_regex(pattern: &str, case_insensitive: bool) -> Result<regex::Regex, regex::Error> {
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(case_insensitive)
+        .build()
+}
+
 impl Matcher {
     pub fn compile(pattern: &str, kind: MatchKind, case_insensitive: bool, glob_anywhere: bool) -> Result<Self> {
         let compiled = match kind {
@@ -62,18 +69,14 @@ impl Matcher {
                 Compiled::Glob(glob.compile_matcher())
             },
             MatchKind::Contains => Compiled::Regex(
-                regex::RegexBuilder::new(&regex::escape(pattern))
-                    .case_insensitive(case_insensitive)
-                    .build()
+                compile_ci_regex(&regex::escape(pattern), case_insensitive)
                     .map_err(|cause| SilvError::Regex {
                         pattern: pattern.to_owned(),
                         cause,
                     })?,
             ),
             MatchKind::Regex => Compiled::Regex(
-                regex::RegexBuilder::new(pattern)
-                    .case_insensitive(case_insensitive)
-                    .build()
+                compile_ci_regex(pattern, case_insensitive)
                     .map_err(|cause| SilvError::Regex {
                         pattern: pattern.to_owned(),
                         cause,
@@ -253,12 +256,15 @@ impl Predicate {
 
 fn eval_leaf(record: &LogRecord, field: &FieldPath, op: LeafOp, matcher: Option<&Matcher>) -> bool {
     match op {
-        LeafOp::Exists => field_present(record, field),
-        LeafOp::NotExists => !field_present(record, field),
-        LeafOp::Eq => matcher.is_some_and(|m| any_value_matches(record, field, m)),
-        LeafOp::Neq => !matcher.is_some_and(|m| any_value_matches(record, field, m)),
-        LeafOp::Contains => matcher.is_some_and(|m| any_scalar_matches(record, field, m)),
-        LeafOp::NotContains => !matcher.is_some_and(|m| any_scalar_matches(record, field, m)),
+        LeafOp::Exists | LeafOp::NotExists => op.is_negative() != field_present(record, field),
+        LeafOp::Eq | LeafOp::Neq => match matcher {
+            Some(matcher) => op.is_negative() != any_value_matches(record, field, matcher),
+            None => op.is_negative(),
+        },
+        LeafOp::Contains | LeafOp::NotContains => match matcher {
+            Some(matcher) => op.is_negative() != any_scalar_matches(record, field, matcher),
+            None => op.is_negative(),
+        },
     }
 }
 
@@ -352,13 +358,9 @@ fn join(f: &mut Formatter<'_>, children: &[Predicate], sep: &str) -> std::fmt::R
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::record::FieldAliases;
     use serde_json::json;
 
-    fn record(text: &str) -> LogRecord {
-        let object = serde_json::from_str(text).expect("fixture object");
-        LogRecord::from_object(0, 1, 0, object, &FieldAliases::with_defaults(&[], &[], &[]).expect("aliases"))
-    }
+    use crate::fixtures::record;
 
     fn glob(pattern: &str) -> Matcher {
         Matcher::compile(pattern, MatchKind::Glob, true, false).expect("compiles")

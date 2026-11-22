@@ -240,17 +240,9 @@ mod tests {
     use crate::model::level::Level;
     use serde_json::json;
 
-    fn aliases() -> FieldAliases {
-        FieldAliases::with_defaults(&[], &[], &[]).expect("defaults parse")
-    }
-
-    fn object(text: &str) -> IValue {
-        serde_json::from_str(text).expect("fixture is a JSON object")
-    }
-
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::aliases;
+    use crate::fixtures::ivalue;
+    use crate::fixtures::map as object;
 
     #[test]
     fn extracts_columns_from_default_aliases() {

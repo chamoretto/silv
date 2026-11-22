@@ -334,6 +334,19 @@ impl LogStore {
         self.records.get(index)
     }
 
+    /// The record at a `u32` view index; an out-of-range index reads as missing.
+    pub fn record_of(&self, index: u32) -> Option<&LogRecord> {
+        self.record(usize::try_from(index).unwrap_or(usize::MAX))
+    }
+
+    /// The source label of a record, `<unknown>` when the source is not registered.
+    pub fn source_label_of(&self, record: &LogRecord) -> &str {
+        self.sources()
+            .get(usize::try_from(record.source).unwrap_or(usize::MAX))
+            .map(|source| source.label.as_str())
+            .unwrap_or("<unknown>")
+    }
+
     pub const fn len(&self) -> usize {
         self.records.len()
     }
