@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Replace hand-written enum tables with strum and displaydoc derives
+- *(app)* Add say, clamp_cursor and clamp_move helpers, fold repeated sites
 
 ### Documentation
 

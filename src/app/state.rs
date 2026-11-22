@@ -45,6 +45,18 @@ use crate::update::UpdateTarget;
 /// Live store, kept in RAM by design.
 pub type Store = LogStore;
 
+/// Clamps a cursor into a (possibly empty) collection.
+fn clamp_cursor(cursor: &mut usize, len: usize) {
+    *cursor = (*cursor).min(len.saturating_sub(1));
+}
+
+/// Moves a cursor by `delta`, clamped at both ends (`len` must be positive).
+fn clamp_move(cursor: &mut usize, len: usize, delta: isize) {
+    let last = isize::try_from(len - 1).unwrap_or(isize::MAX);
+    let current = isize::try_from(*cursor).unwrap_or(0).clamp(0, last);
+    *cursor = usize::try_from((current + delta).clamp(0, last)).unwrap_or(0);
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug, EnumIter, IntoStaticStr)]
 pub enum Focus {
     #[strum(to_string = "search")]
@@ -421,10 +433,10 @@ impl AppState {
             self.config.tail,
         );
         self.regexes = self.search.highlight_regexes();
-        self.cursor = self.cursor.min(self.view.len().saturating_sub(1));
+        clamp_cursor(&mut self.cursor, self.view.len());
         self.rows_scroll = self.rows_scroll.min(self.view.len());
-        self.header_cursor = self.header_cursor.min(self.columns.len().saturating_sub(1));
-        self.filter_cursor = self.filter_cursor.min(self.filters.len().saturating_sub(1));
+        clamp_cursor(&mut self.header_cursor, self.columns.len());
+        clamp_cursor(&mut self.filter_cursor, self.filters.len());
         self.update_status();
     }
 
@@ -447,6 +459,12 @@ impl AppState {
             self.columns.len(),
             self.config.render,
         );
+    }
+
+    /// Shows a status-line message and requests a redraw.
+    pub fn say(&mut self, message: impl Into<String>) {
+        self.message = Some(message.into());
+        self.dirty = true;
     }
 
     pub const fn record_count(&self) -> usize {
@@ -588,9 +606,7 @@ impl AppState {
         if len == 0 {
             return;
         }
-        let current = isize::try_from(wizard.cursor).unwrap_or(0);
-        let len = isize::try_from(len).unwrap_or(isize::MAX);
-        wizard.cursor = usize::try_from((current + delta).clamp(0, len - 1)).unwrap_or(0);
+        clamp_move(&mut wizard.cursor, len, delta);
         self.dirty = true;
     }
 
@@ -726,7 +742,7 @@ impl AppState {
         if index < self.filters.len() {
             self.push_filter_history();
             self.filters.remove(index);
-            self.filter_cursor = self.filter_cursor.min(self.filters.len().saturating_sub(1));
+            clamp_cursor(&mut self.filter_cursor, self.filters.len());
             self.rebuild();
         }
     }
@@ -774,7 +790,7 @@ impl AppState {
         };
         to.push(self.filters.clone());
         self.filters = list;
-        self.filter_cursor = self.filter_cursor.min(self.filters.len().saturating_sub(1));
+        clamp_cursor(&mut self.filter_cursor, self.filters.len());
         self.rebuild();
         let token = if backward { "undone" } else { "redone" };
         self.message = Some(format!("filter change {token}"));
@@ -804,7 +820,7 @@ impl AppState {
             self.columns.push(column);
             self.message = Some(format!("column added: {label}"));
         }
-        self.header_cursor = self.header_cursor.min(self.columns.len().saturating_sub(1));
+        clamp_cursor(&mut self.header_cursor, self.columns.len());
         self.update_status();
         self.dirty = true;
     }
@@ -853,9 +869,8 @@ impl AppState {
             return;
         }
         self.header_mode = HeaderMode::Drag;
-        self.message = Some("column drag: Left/Right move column, Enter/click sorts, Space/Esc leaves".to_owned());
         self.update_status();
-        self.dirty = true;
+        self.say("column drag: Left/Right move column, Enter/click sorts, Space/Esc leaves");
     }
 
     pub fn leave_column_drag(&mut self) {
@@ -880,8 +895,7 @@ impl AppState {
         let label = self.columns[from].label();
         self.columns.swap(from, to);
         self.header_cursor = to;
-        self.message = Some(format!("column moved: {label} -> {}", to + 1));
-        self.dirty = true;
+        self.say(format!("column moved: {label} -> {}", to + 1));
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
@@ -889,10 +903,7 @@ impl AppState {
             self.cursor = 0;
             return;
         }
-        let len = isize::try_from(self.view.len()).unwrap_or(isize::MAX);
-        let current = isize::try_from(self.cursor).unwrap_or(0);
-        let next = (current + delta).clamp(0, len - 1);
-        self.cursor = usize::try_from(next).unwrap_or(0);
+        clamp_move(&mut self.cursor, self.view.len(), delta);
     }
 
     /// Wheel scrolling, overlay-aware: three lines per notch in the active layer.
@@ -935,8 +946,7 @@ impl AppState {
             RenderChoice::Jsonl => RenderChoice::Auto,
         };
         self.update_status();
-        self.message = Some(format!("render: {:?}", self.config.render));
-        self.dirty = true;
+        self.say(format!("render: {:?}", self.config.render));
     }
 
     pub fn toggle_case(&mut self) {
@@ -1017,10 +1027,7 @@ impl AppState {
             return;
         };
         if let Some(menu) = detail.menu.as_mut() {
-            let len = MenuAction::COUNT;
-            let current = isize::try_from(*menu).unwrap_or(0);
-            let next = (current + delta).clamp(0, isize::try_from(len - 1).unwrap_or(0));
-            *menu = usize::try_from(next).unwrap_or(0);
+            clamp_move(menu, MenuAction::COUNT, delta);
             return;
         }
         if detail.json {
@@ -1030,9 +1037,7 @@ impl AppState {
         if len == 0 {
             return;
         }
-        let current = isize::try_from(detail.cursor).unwrap_or(0);
-        let next = (current + delta).clamp(0, isize::try_from(len - 1).unwrap_or(0));
-        detail.cursor = usize::try_from(next).unwrap_or(0);
+        clamp_move(&mut detail.cursor, len, delta);
     }
 
     pub fn detail_toggle_json(&mut self) {
@@ -1139,7 +1144,8 @@ impl AppState {
             picker.matches = (0..picker.fields.len())
                 .filter(|index| picker.fields[*index].label.to_lowercase().contains(&needle))
                 .collect();
-            picker.cursor = picker.cursor.min(picker.matches.len().saturating_sub(1));
+            let matches_len = picker.matches.len();
+            clamp_cursor(&mut picker.cursor, matches_len);
             picker.scroll = 0;
         }
         self.dirty = true;
@@ -1175,9 +1181,7 @@ impl AppState {
         if picker.matches.is_empty() {
             return;
         }
-        let len = isize::try_from(picker.matches.len()).unwrap_or(isize::MAX);
-        let current = isize::try_from(picker.cursor).unwrap_or(0);
-        picker.cursor = usize::try_from((current + delta).clamp(0, len - 1)).unwrap_or(0);
+        clamp_move(&mut picker.cursor, picker.matches.len(), delta);
         self.dirty = true;
     }
 
@@ -1186,8 +1190,7 @@ impl AppState {
             // The self-replace is in flight: killing the process now can truncate the
             // binary (Windows renames the running file, then writes the new one).
             self.quit_confirm_pending = true;
-            self.message = Some("update: an update is in progress, press q again to quit anyway".to_owned());
-            self.dirty = true;
+            self.say("update: an update is in progress, press q again to quit anyway");
             return;
         }
         self.quit = true;
@@ -1436,9 +1439,9 @@ impl AppState {
 
     fn handle_chips_key(&mut self, key: KeyPress) {
         match key.bind {
-            KeyCode::Left | KeyCode::Char('h') => self.filter_cursor = self.filter_cursor.saturating_sub(1),
+            KeyCode::Left | KeyCode::Char('h') => clamp_move(&mut self.filter_cursor, self.filters.len(), -1),
             KeyCode::Right | KeyCode::Char('l') => {
-                self.filter_cursor = (self.filter_cursor + 1).min(self.filters.len().saturating_sub(1));
+                clamp_move(&mut self.filter_cursor, self.filters.len(), 1);
             },
             KeyCode::Char('d') | KeyCode::Delete | KeyCode::Backspace => self.remove_filter(self.filter_cursor),
             KeyCode::Enter => {
@@ -1464,14 +1467,14 @@ impl AppState {
                 if dragging {
                     self.move_column(-1);
                 } else {
-                    self.header_cursor = self.header_cursor.saturating_sub(1);
+                    clamp_move(&mut self.header_cursor, self.columns.len(), -1);
                 }
             },
             KeyCode::Right | KeyCode::Char('l') => {
                 if dragging {
                     self.move_column(1);
                 } else {
-                    self.header_cursor = (self.header_cursor + 1).min(self.columns.len().saturating_sub(1));
+                    clamp_move(&mut self.header_cursor, self.columns.len(), 1);
                 }
             },
             KeyCode::Enter | KeyCode::Char('s') => {
@@ -1491,7 +1494,7 @@ impl AppState {
                 if let Some(column) = self.focused_column().cloned() {
                     self.columns.remove(self.header_cursor);
                     self.message = Some(format!("column removed: {}", column.label()));
-                    self.header_cursor = self.header_cursor.min(self.columns.len().saturating_sub(1));
+                    clamp_cursor(&mut self.header_cursor, self.columns.len());
                     self.update_status();
                 }
             },
@@ -1550,14 +1553,14 @@ impl AppState {
             KeyCode::Char('X') => self.clear_filters(),
             KeyCode::Left => {
                 if picking {
-                    self.pick_cursor = self.pick_cursor.saturating_sub(1);
+                    clamp_move(&mut self.pick_cursor, self.columns.len(), -1);
                 } else {
                     self.column_scroll = self.column_scroll.saturating_sub(1);
                 }
             },
             KeyCode::Right => {
                 if picking {
-                    self.pick_cursor = (self.pick_cursor + 1).min(self.columns.len().saturating_sub(1));
+                    clamp_move(&mut self.pick_cursor, self.columns.len(), 1);
                 } else {
                     self.column_scroll = (self.column_scroll + 1).min(self.columns.len().saturating_sub(1));
                 }
@@ -1641,8 +1644,7 @@ impl AppState {
         });
         self.filter_input.set(&path.to_string());
         self.focus = Focus::FilterInput;
-        self.message = Some(format!("filter by value: {path} = {probe}, choose the operator"));
-        self.dirty = true;
+        self.say(format!("filter by value: {path} = {probe}, choose the operator"));
     }
 
     /// Mode-aware control keys shown on the prompt line; `[...]` marks key tokens.
@@ -1914,12 +1916,11 @@ impl AppState {
             return;
         }
         if self.update_cargo_managed {
-            self.message = Some(format!(
+            self.say(format!(
                 "update: this binary is a cargo install, update with `cargo install --git {} --force` \
                  (a self-update would desync cargo's install list)",
                 self.update_repo.url()
             ));
-            self.dirty = true;
             return;
         }
         self.updating = true;
