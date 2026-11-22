@@ -516,7 +516,7 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
     }
 
     let start = state.nav.rows_scroll;
-    let visible: Vec<u32> = state.view.rows.iter().copied().skip(start).take(body_height).collect();
+    let visible = visible_rows(state, body_height);
     let rows_cells: Vec<Vec<Cell>> = visible
         .iter()
         .map(|index| {
@@ -571,17 +571,12 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
 fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: RenderChoice, body_height: usize) {
     let start = state.nav.rows_scroll;
-    let rows: Vec<Row> = state
-        .view
-        .rows
+    let rows: Vec<Row> = visible_rows(state, body_height)
         .iter()
-        .copied()
-        .skip(start)
-        .take(body_height)
         .map(|index| {
             let cells = state
                 .store
-                .record_of(index)
+                .record_of(*index)
                 .map(|record| {
                     let cells = render_record(record, mode, &state.columns, state.source_label(record), &state.config);
                     highlight(cells, &state.query.regexes)
@@ -607,8 +602,12 @@ fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: Ren
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
-fn keep_cursor_visible(state: &mut AppState, body_height: usize) {
-    if body_height == 0 {
+/// The view indices to draw: the window of `body_height` lines at the rows scroll.
+fn visible_rows(state: &AppState, body_height: usize) -> Vec<u32> {
+    state.view.rows.iter().copied().skip(state.nav.rows_scroll).take(body_height).collect()
+}
+
+fn keep_cursor_visible(state: &mut AppState, body_height: usize) {    if body_height == 0 {
         return;
     }
     let body = u16_len(body_height);

@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(filter)* Single predicate renderer shared by plain text and colored chips
 - *(app)* Consolidate keymap platform cfg arms into one platform module
 - *(ui)* Share pad, display-width span measurement and editor label helpers
+- *(app)* Shared visible_rows window and mouse hit test helpers
 
 ### Documentation
 

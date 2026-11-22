@@ -88,26 +88,16 @@ impl AppState {
         if contains(areas.chips, row) {
             self.nav.focus = Focus::FilterChips;
             let row_offset = row.saturating_sub(areas.chips.y);
-            if let Some((_, _, index, _)) = self
-                .geometry
-                .chip_cells
-                .iter()
-                .find(|(start, end, _, cell_row)| *cell_row == row_offset && *start <= column && column <= *end)
-            {
-                self.nav.filter_cursor = *index;
+            if let Some(index) = hit_chip(&self.geometry.chip_cells, column, row_offset) {
+                self.nav.filter_cursor = index;
             }
             return;
         }
         if contains(areas.rows, row) {
             if row == areas.rows.top() {
                 self.nav.focus = Focus::Header;
-                if let Some((_, _, index)) = self
-                    .geometry
-                    .header_cells
-                    .iter()
-                    .find(|(start, end, _)| *start <= column && column <= *end)
-                {
-                    self.nav.header_cursor = *index;
+                if let Some(index) = hit_index(&self.geometry.header_cells, column) {
+                    self.nav.header_cursor = index;
                     match self.nav.header_mode {
                         // First click picks the column and enters drag; no sort change.
                         HeaderMode::Navigate => self.enter_column_drag(),
@@ -131,4 +121,17 @@ impl AppState {
 
 fn contains(area: Rect, row: u16) -> bool {
     area.height > 0 && row >= area.top() && row < area.top() + area.height
+}
+
+/// The recorded header cell spanning a column.
+fn hit_index(cells: &[(u16, u16, usize)], column: u16) -> Option<usize> {
+    cells.iter().find(|(start, end, _)| *start <= column && column <= *end).map(|(_, _, index)| *index)
+}
+
+/// The recorded chip cell spanning a column on a chips area row.
+fn hit_chip(cells: &[(u16, u16, usize, u16)], column: u16, row_offset: u16) -> Option<usize> {
+    cells
+        .iter()
+        .find(|(start, end, _, cell_row)| *cell_row == row_offset && *start <= column && column <= *end)
+        .map(|(_, _, index, _)| *index)
 }
