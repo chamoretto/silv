@@ -7,16 +7,15 @@ use crate::model::record::LogRecord;
 use crate::parse::LineResult;
 use crate::parse::ParseIssue;
 
+pub const IS_ARRAY: &str = "line is a JSON array, a record must be an object";
+pub const NOT_AN_OBJECT: &str = "line is not a JSON object";
+
 pub fn parse_line(source: u32, number: u64, offset: usize, bytes: &[u8], aliases: &FieldAliases) -> LineResult {
     match serde_json::from_slice::<IValue>(bytes) {
         Ok(object) if object.is_object() => Ok(LogRecord::from_object(source, number, offset, object, aliases)),
         Ok(_) => {
             let text = String::from_utf8_lossy(bytes).into_owned();
-            let reason = if text.starts_with('[') {
-                "line is a JSON array, a record must be an object".to_owned()
-            } else {
-                "line is not a JSON object".to_owned()
-            };
+            let reason = if text.starts_with('[') { IS_ARRAY } else { NOT_AN_OBJECT }.to_owned();
             Err(ParseIssue {
                 source,
                 line: number,
@@ -41,9 +40,9 @@ pub fn parse_line(source: u32, number: u64, offset: usize, bytes: &[u8], aliases
 fn describe(error: &serde_json::Error, text: &str) -> String {
     if !text.starts_with('{') {
         if text.starts_with('[') {
-            return "line is a JSON array, a record must be an object".to_owned();
+            return IS_ARRAY.to_owned();
         }
-        return "line is not a JSON object".to_owned();
+        return NOT_AN_OBJECT.to_owned();
     }
     let reason = error.to_string();
     let stripped = strip_position(&reason);
@@ -68,13 +67,8 @@ mod tests {
     use crate::model::timestamp::TimeFormat;
     use serde_json::json;
 
-    fn aliases() -> FieldAliases {
-        FieldAliases::with_defaults(&[], &[], &[]).expect("defaults")
-    }
-
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::aliases;
+    use crate::fixtures::ivalue;
 
     #[test]
     fn parses_object_line() {

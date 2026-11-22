@@ -410,7 +410,7 @@ fn update_performs_self_replace_on_a_temp_copy() {
     assert_eq!(replaced, asset, "the copy must become exactly the served asset");
     assert_ne!(replaced, stock, "the served asset differs from the runner, so the replace changed the binary");
     assert!(runs.status.success(), "the replaced copy must be executable");
-    assert!(version_out.contains("0.3.0"), "the replaced copy runs the real program: {version_out}");
+    assert!(version_out.contains(env!("CARGO_PKG_VERSION")), "the replaced copy runs the real program: {version_out}");
     let now = std::fs::read(env!("CARGO_BIN_EXE_silv")).unwrap_or_default();
     assert_eq!(now, stock, "cargo's artifact must stay untouched");
 }

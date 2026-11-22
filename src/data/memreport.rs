@@ -1162,10 +1162,7 @@ pub fn format_report(report: &MemoryReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn map(text: &str) -> IValue {
-        serde_json::from_str(text).expect("fixture object")
-    }
+    use crate::fixtures::map;
 
     #[test]
     fn walks_counts_all_kinds() {

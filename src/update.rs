@@ -155,6 +155,11 @@ pub fn target_triple() -> Option<&'static str> {
     }
 }
 
+/// The shared reason for a platform the release workflow does not publish.
+fn no_release_reason() -> String {
+    format!("no release is published for this platform ({}-{})", std::env::consts::ARCH, std::env::consts::OS)
+}
+
 /// The running binary's version, as embedded at build time.
 pub const fn current_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
@@ -306,11 +311,7 @@ impl UpdateTarget {
         let Some(triple) = target_triple() else {
             return UpdateOutcome::Unreachable {
                 repo: self.repo.url(),
-                reason: format!(
-                    "no release is published for this platform ({}-{})",
-                    std::env::consts::ARCH,
-                    std::env::consts::OS
-                ),
+                reason: no_release_reason(),
             };
         };
         let releases = match self.builder(Duration::from_secs(10)).target(triple).build() {
@@ -349,11 +350,7 @@ impl UpdateTarget {
     pub fn perform(&self, version: Option<&str>) -> PerformOutcome {
         let Some(triple) = target_triple() else {
             return PerformOutcome::Failed {
-                reason: format!(
-                    "no release is published for this platform ({}-{})",
-                    std::env::consts::ARCH,
-                    std::env::consts::OS
-                ),
+                reason: no_release_reason(),
                 suggest_repo_url: false,
                 suggest_sudo: false,
             };

@@ -4,6 +4,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use miette::Result;
+use strum::Display as StrumDisplay;
+use strum::IntoStaticStr;
 
 use crate::error::SilvError;
 use crate::model::field::FieldPath;
@@ -40,6 +42,13 @@ enum Compiled {
     Regex(regex::Regex),
 }
 
+/// Case-configured regex build, shared by matchers and search highlighting.
+pub(crate) fn compile_ci_regex(pattern: &str, case_insensitive: bool) -> Result<regex::Regex, regex::Error> {
+    regex::RegexBuilder::new(pattern)
+        .case_insensitive(case_insensitive)
+        .build()
+}
+
 impl Matcher {
     pub fn compile(pattern: &str, kind: MatchKind, case_insensitive: bool, glob_anywhere: bool) -> Result<Self> {
         let compiled = match kind {
@@ -59,24 +68,20 @@ impl Matcher {
                     })?;
                 Compiled::Glob(glob.compile_matcher())
             },
-            MatchKind::Contains => Compiled::Regex(
-                regex::RegexBuilder::new(&regex::escape(pattern))
-                    .case_insensitive(case_insensitive)
-                    .build()
-                    .map_err(|cause| SilvError::Regex {
+            MatchKind::Contains => {
+                Compiled::Regex(compile_ci_regex(&regex::escape(pattern), case_insensitive).map_err(|cause| {
+                    SilvError::Regex {
                         pattern: pattern.to_owned(),
                         cause,
-                    })?,
-            ),
-            MatchKind::Regex => Compiled::Regex(
-                regex::RegexBuilder::new(pattern)
-                    .case_insensitive(case_insensitive)
-                    .build()
-                    .map_err(|cause| SilvError::Regex {
-                        pattern: pattern.to_owned(),
-                        cause,
-                    })?,
-            ),
+                    }
+                })?)
+            },
+            MatchKind::Regex => {
+                Compiled::Regex(compile_ci_regex(pattern, case_insensitive).map_err(|cause| SilvError::Regex {
+                    pattern: pattern.to_owned(),
+                    cause,
+                })?)
+            },
         };
         Ok(Self {
             pattern: pattern.to_owned(),
@@ -107,26 +112,25 @@ impl Matcher {
 }
 
 /// Comparison applied at a leaf.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, IntoStaticStr, StrumDisplay)]
 pub enum LeafOp {
+    #[strum(to_string = "=")]
     Eq,
+    #[strum(to_string = "!=")]
     Neq,
+    #[strum(to_string = "^")]
     Exists,
+    #[strum(to_string = "!^")]
     NotExists,
+    #[strum(to_string = "~")]
     Contains,
+    #[strum(to_string = "!~")]
     NotContains,
 }
 
 impl LeafOp {
-    pub const fn token(self) -> &'static str {
-        match self {
-            Self::Eq => "=",
-            Self::Neq => "!=",
-            Self::Exists => "^",
-            Self::NotExists => "!^",
-            Self::Contains => "~",
-            Self::NotContains => "!~",
-        }
+    pub fn token(self) -> &'static str {
+        (&self).into()
     }
 
     pub const fn takes_pattern(self) -> bool {
@@ -144,12 +148,6 @@ impl LeafOp {
         } else {
             crate::render::color::Sg::OpPositive
         }
-    }
-}
-
-impl Display for LeafOp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.token())
     }
 }
 
@@ -258,12 +256,15 @@ impl Predicate {
 
 fn eval_leaf(record: &LogRecord, field: &FieldPath, op: LeafOp, matcher: Option<&Matcher>) -> bool {
     match op {
-        LeafOp::Exists => field_present(record, field),
-        LeafOp::NotExists => !field_present(record, field),
-        LeafOp::Eq => matcher.is_some_and(|m| any_value_matches(record, field, m)),
-        LeafOp::Neq => !matcher.is_some_and(|m| any_value_matches(record, field, m)),
-        LeafOp::Contains => matcher.is_some_and(|m| any_scalar_matches(record, field, m)),
-        LeafOp::NotContains => !matcher.is_some_and(|m| any_scalar_matches(record, field, m)),
+        LeafOp::Exists | LeafOp::NotExists => op.is_negative() != field_present(record, field),
+        LeafOp::Eq | LeafOp::Neq => match matcher {
+            Some(matcher) => op.is_negative() != any_value_matches(record, field, matcher),
+            None => op.is_negative(),
+        },
+        LeafOp::Contains | LeafOp::NotContains => match matcher {
+            Some(matcher) => op.is_negative() != any_scalar_matches(record, field, matcher),
+            None => op.is_negative(),
+        },
     }
 }
 
@@ -308,62 +309,109 @@ fn any_scalar_matches(record: &LogRecord, field: &FieldPath, matcher: &Matcher) 
     found
 }
 
-impl Display for Predicate {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+/// Rendering pieces of a predicate, in display order; shared by the plain
+/// `Display` form and the colored chip renderer.
+#[derive(Debug)]
+pub enum Piece<'a> {
+    Field(&'a FieldPath),
+    Op {
+        token: &'static str,
+        style: crate::render::color::Sg,
+        with_pattern: bool,
+    },
+    Pattern {
+        text: &'a str,
+        /// False when any leaf in the predicate is a glob: the pattern gets no highlight.
+        plain: bool,
+    },
+    /// A join word ("and", "or"), spaced on both sides by the renderers.
+    Keyword(&'static str),
+    /// The "not " keyword.
+    Not,
+    Paren(char),
+}
+
+impl Predicate {
+    /// Collects the rendering pieces of the predicate.
+    pub fn render_pieces<'a>(&'a self, out: &mut Vec<Piece<'a>>) {
         match self {
-            Self::All(children) => join(f, children, " and "),
-            Self::Any(children) => join(f, children, " or "),
+            Self::All(children) => render_join(children, "and", out),
+            Self::Any(children) => render_join(children, "or", out),
             Self::Not(child) => {
-                if matches!(child.as_ref(), Self::Any(_)) {
-                    write!(f, "not ({child})")
-                } else {
-                    write!(f, "not {child}")
+                out.push(Piece::Not);
+                let needs_paren = matches!(child.as_ref(), Self::Any(_));
+                if needs_paren {
+                    out.push(Piece::Paren('('));
+                }
+                child.render_pieces(out);
+                if needs_paren {
+                    out.push(Piece::Paren(')'));
                 }
             },
             Self::Leaf { field, op, matcher } => {
-                write!(f, "{field}{}", op.token())?;
+                out.push(Piece::Field(field));
+                out.push(Piece::Op {
+                    token: op.token(),
+                    style: op.style(),
+                    with_pattern: matcher.is_some(),
+                });
                 if let Some(matcher) = matcher {
-                    let pattern = &matcher.pattern;
-                    if pattern.contains(' ') {
-                        write!(f, "\"{pattern}\"")
-                    } else {
-                        write!(f, "{pattern}")
-                    }
-                } else {
-                    Ok(())
+                    out.push(Piece::Pattern {
+                        text: &matcher.pattern,
+                        plain: !self.has_glob(),
+                    });
                 }
             },
         }
     }
 }
 
-fn join(f: &mut Formatter<'_>, children: &[Predicate], sep: &str) -> std::fmt::Result {
+fn render_join<'a>(children: &'a [Predicate], separator: &'static str, out: &mut Vec<Piece<'a>>) {
     for (index, child) in children.iter().enumerate() {
         if index > 0 {
-            f.write_str(sep)?;
+            out.push(Piece::Keyword(separator));
         }
         let needs_paren = matches!(child, Predicate::All(_) | Predicate::Any(_));
         if needs_paren {
-            f.write_str("(")?;
+            out.push(Piece::Paren('('));
         }
-        write!(f, "{child}")?;
+        child.render_pieces(out);
         if needs_paren {
-            f.write_str(")")?;
+            out.push(Piece::Paren(')'));
         }
     }
-    Ok(())
+}
+
+impl Display for Predicate {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let mut pieces = Vec::new();
+        self.render_pieces(&mut pieces);
+        for piece in pieces {
+            match piece {
+                Piece::Field(field) => write!(f, "{field}")?,
+                Piece::Op { token, .. } => write!(f, "{token}")?,
+                Piece::Pattern { text, .. } => {
+                    if text.contains(' ') {
+                        write!(f, "\"{text}\"")?;
+                    } else {
+                        write!(f, "{text}")?;
+                    }
+                },
+                Piece::Keyword(word) => write!(f, " {word} ")?,
+                Piece::Not => f.write_str("not ")?,
+                Piece::Paren(ch) => write!(f, "{ch}")?,
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::record::FieldAliases;
     use serde_json::json;
 
-    fn record(text: &str) -> LogRecord {
-        let object = serde_json::from_str(text).expect("fixture object");
-        LogRecord::from_object(0, 1, 0, object, &FieldAliases::with_defaults(&[], &[], &[]).expect("aliases"))
-    }
+    use crate::fixtures::record;
 
     fn glob(pattern: &str) -> Matcher {
         Matcher::compile(pattern, MatchKind::Glob, true, false).expect("compiles")

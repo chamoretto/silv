@@ -234,33 +234,89 @@ impl KeyPress {
 }
 
 /// Names accepted by `--key-map <name>`.
-pub fn layout_names() -> Vec<String> {
+/// Platform layout probing. Every cfg arm implements the same surface:
+/// `layout_names`, `table_text`, `active_map`, `detail`.
+mod platform {
+    use super::*;
+
     #[cfg(all(unix, not(target_os = "macos")))]
-    {
+    pub fn layout_names() -> Vec<String> {
         xkb::names()
     }
+
     #[cfg(not(all(unix, not(target_os = "macos"))))]
-    {
+    pub fn layout_names() -> Vec<String> {
         BUILTIN_NAMES.iter().map(|name| (*name).to_owned()).collect()
     }
-}
 
-/// Table text of a named layout, empty when the platform has none.
-fn table_text(name: &str) -> &'static str {
+    /// Table text of a named layout, empty when the platform has none.
     #[cfg(all(unix, not(target_os = "macos")))]
-    {
+    pub fn table_text(name: &str) -> &'static str {
         xkb::table(name)
             .or_else(|| BUILTIN_NAMES.contains(&name).then_some(BUILTIN_TEXT))
             .unwrap_or_default()
     }
+
     #[cfg(not(all(unix, not(target_os = "macos"))))]
-    {
+    pub fn table_text(name: &str) -> &'static str {
         if BUILTIN_NAMES.contains(&name) {
             BUILTIN_TEXT
         } else {
             ""
         }
     }
+
+    /// Map of the layout the system is currently using, empty when the platform cannot tell.
+    #[cfg(windows)]
+    pub fn active_map() -> KeyMap {
+        KeyMap::from_entries(windows::build(), KeyMapOrigin::Builtin)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn active_map() -> KeyMap {
+        KeyMap::from_entries(macos::build(), KeyMapOrigin::Builtin)
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn active_map() -> KeyMap {
+        xkb::active_map()
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    pub fn active_map() -> KeyMap {
+        KeyMap::raw()
+    }
+
+    /// One line description of the platform probe, for `--key-map-show`.
+    #[cfg(windows)]
+    pub fn detail() -> String {
+        windows::detail()
+    }
+
+    #[cfg(target_os = "macos")]
+    pub fn detail() -> String {
+        macos::detail()
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    pub fn detail() -> String {
+        xkb::detail()
+    }
+
+    #[cfg(not(any(windows, unix)))]
+    pub fn detail() -> String {
+        "no layout probing on this platform".to_owned()
+    }
+}
+
+/// Names of the layouts the user can pick by name.
+pub fn layout_names() -> Vec<String> {
+    platform::layout_names()
+}
+
+/// Table text of a named layout, empty when the platform has none.
+fn table_text(name: &str) -> &'static str {
+    platform::table_text(name)
 }
 
 /// Parses a `from<TAB>to` table, `#` starts a comment. The second result describes the first
@@ -311,22 +367,7 @@ fn platform_map() -> KeyMap {
     if !probe_enabled() {
         return KeyMap::raw();
     }
-    #[cfg(windows)]
-    {
-        KeyMap::from_entries(windows::build(), KeyMapOrigin::Builtin)
-    }
-    #[cfg(target_os = "macos")]
-    {
-        KeyMap::from_entries(macos::build(), KeyMapOrigin::Builtin)
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        xkb::active_map()
-    }
-    #[cfg(not(any(windows, unix)))]
-    {
-        KeyMap::raw()
-    }
+    platform::active_map()
 }
 
 /// One line description of the platform probe, for `--key-map-show`.
@@ -334,22 +375,7 @@ fn platform_detail() -> String {
     if !probe_enabled() {
         return format!("probe off, {PROBE_ENV} switched it off");
     }
-    #[cfg(windows)]
-    {
-        windows::detail()
-    }
-    #[cfg(target_os = "macos")]
-    {
-        macos::detail()
-    }
-    #[cfg(all(unix, not(target_os = "macos")))]
-    {
-        xkb::detail()
-    }
-    #[cfg(not(any(windows, unix)))]
-    {
-        "no layout probing on this platform".to_owned()
-    }
+    platform::detail()
 }
 
 /// Environment variable that switches the live layout probe on and off.

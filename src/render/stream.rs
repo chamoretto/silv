@@ -88,7 +88,7 @@ fn write_table(
         .iter()
         .take(WIDTH_SAMPLE)
         .map(|index| {
-            let record = store.record(usize::try_from(*index).unwrap_or(usize::MAX));
+            let record = store.record_of(*index);
             record.map(|record| table_cells(record, ctx.columns, label_for(record, ctx.source_labels), config))
         })
         .collect::<Option<Vec<_>>>()
@@ -117,7 +117,7 @@ fn write_table(
 
     if failure.is_none() {
         for index in &view.rows {
-            let Some(record) = store.record(usize::try_from(*index).unwrap_or(usize::MAX)) else {
+            let Some(record) = store.record_of(*index) else {
                 continue;
             };
             let cells =
@@ -152,7 +152,7 @@ fn write_plain_records(
     let mut written = 0usize;
     let mut failure: Option<std::io::Error> = None;
     for index in &view.rows {
-        let Some(record) = store.record(usize::try_from(*index).unwrap_or(usize::MAX)) else {
+        let Some(record) = store.record_of(*index) else {
             continue;
         };
         let cells = render_record(record, ctx.mode, ctx.columns, label_for(record, ctx.source_labels), config);

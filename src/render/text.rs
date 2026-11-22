@@ -4,6 +4,11 @@ use unicode_width::UnicodeWidthChar;
 
 pub const ELLIPSIS: &str = "..";
 
+/// A `usize` length as `u16`, saturating at the terminal coordinate range.
+pub fn u16_len(value: usize) -> u16 {
+    u16::try_from(value).unwrap_or(u16::MAX)
+}
+
 /// Terminal width of a string, control characters counted as zero.
 pub fn width(text: &str) -> usize {
     text.chars()
@@ -56,6 +61,14 @@ pub fn pad_right(text: &str, column: usize) -> String {
     let missing = column.saturating_sub(width(text));
     let mut out = String::with_capacity(text.len() + missing);
     out.push_str(text);
+    out.push_str(&" ".repeat(missing));
+    out
+}
+
+/// Truncates the text to `column` cells, then pads the result to the full width.
+pub fn pad(text: &str, column: usize) -> String {
+    let mut out = truncate(text, column);
+    let missing = column.saturating_sub(width(&out));
     out.push_str(&" ".repeat(missing));
     out
 }

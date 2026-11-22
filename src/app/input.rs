@@ -1,5 +1,9 @@
 //! Single line text editor with history.
 
+use ratatui::crossterm::event::KeyCode;
+
+use crate::app::keymap::KeyPress;
+
 #[derive(Clone, Debug, Default)]
 pub struct Editor {
     chars: Vec<char>,
@@ -93,6 +97,46 @@ impl Editor {
     /// Moves the cursor to `position` clamped to the text.
     pub fn move_to(&mut self, position: usize) {
         self.cursor = position.min(self.chars.len());
+    }
+
+    /// Applies one plain editing key: text keys, backspace, delete, cursor keys.
+    /// Returns true when the key was consumed. Enter, Esc and history keys (Up,
+    /// Down) belong to the caller, together with their side effects.
+    pub fn handle_edit_key(&mut self, key: KeyPress) -> bool {
+        match key.bind {
+            KeyCode::Char(_) => match key.typed_char() {
+                Some(ch) => {
+                    self.insert(ch);
+                    true
+                },
+                None => false,
+            },
+            KeyCode::Backspace => {
+                self.backspace();
+                true
+            },
+            KeyCode::Delete => {
+                self.delete();
+                true
+            },
+            KeyCode::Left => {
+                self.left();
+                true
+            },
+            KeyCode::Right => {
+                self.right();
+                true
+            },
+            KeyCode::Home => {
+                self.home();
+                true
+            },
+            KeyCode::End => {
+                self.end();
+                true
+            },
+            _ => false,
+        }
     }
 
     /// Records the current text in history and returns it.

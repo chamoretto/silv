@@ -31,6 +31,7 @@ use crate::app::state::RowMode;
 use crate::app::state::WIZARD_OPS;
 use crate::app::state::WizardPhase;
 use crate::cli::RenderChoice;
+use crate::filter::Piece;
 use crate::filter::Predicate;
 use crate::render::fields::Column;
 use crate::render::record_render::Cell;
@@ -39,6 +40,8 @@ use crate::render::record_render::render_record;
 use crate::render::record_render::resolve_render;
 use crate::render::record_render::table_cells;
 use crate::render::table as table_layout;
+use crate::render::text::pad;
+use crate::render::text::u16_len;
 
 const WIDTH_CAP: usize = 60;
 const GAP: &str = "  ";
@@ -53,12 +56,12 @@ const CHIP_PROMPTS: &str = concat!(
 /// Renders the whole screen.
 pub fn draw(frame: &mut Frame, state: &mut AppState) {
     let area = frame.area();
-    let focused_chip = (state.focus == Focus::FilterChips).then_some(state.filter_cursor);
-    let chips = chip_layout(&state.filters, usize::from(area.width), focused_chip);
+    let focused_chip = (state.nav.focus == Focus::FilterChips).then_some(state.nav.filter_cursor);
+    let chips = chip_layout(&state.query.filters, usize::from(area.width), focused_chip);
     let rows = u16::try_from(chips.rows.len()).unwrap_or(1);
     let chips_height: u16 = if chips.rows.is_empty() {
         1
-    } else if state.focus == Focus::FilterChips {
+    } else if state.nav.focus == Focus::FilterChips {
         rows + 2
     } else {
         rows + 1
@@ -78,13 +81,13 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     ])
     .split(area);
 
-    state.areas.search = rects[0];
-    state.areas.chips = rects[1];
-    state.areas.filter = rects[2];
-    state.areas.rows = rects[3];
-    state.areas.prompts = rects[5];
-    state.areas.status = rects[6];
-    state.areas.update = rects[7];
+    state.geometry.areas.search = rects[0];
+    state.geometry.areas.chips = rects[1];
+    state.geometry.areas.filter = rects[2];
+    state.geometry.areas.rows = rects[3];
+    state.geometry.areas.prompts = rects[5];
+    state.geometry.areas.status = rects[6];
+    state.geometry.areas.update = rects[7];
 
     draw_search(frame, state, rects[0]);
     draw_chips(frame, state, rects[1], &chips);
@@ -95,43 +98,40 @@ pub fn draw(frame: &mut Frame, state: &mut AppState) {
     draw_update_line(frame, state, rects[7]);
     draw_wizard_dropdown(frame, state, area);
 
-    if let Some(picker) = state.picker.as_ref() {
+    if let Some(picker) = state.overlays.picker.as_ref() {
         let area = centered(area, 72, 60);
         frame.render_widget(Clear, area);
         picker::draw(frame, picker, area, state.config.color_enabled);
     }
-    if state.detail.is_some() {
+    if state.overlays.detail.is_some() {
         frame.render_widget(Clear, area);
         detail::draw(frame, state, area);
     }
-    if state.help {
+    if state.overlays.help {
         let area = centered(area, 84, 90);
         frame.render_widget(Clear, area);
         help::draw(frame, area);
     }
-    if state.changelog.is_some() {
+    if state.update.changelog.is_some() {
         draw_changelog(frame, state, area);
     }
-    if state.repo_prompt.is_some() {
+    if state.update.repo_prompt.is_some() {
         draw_repo_prompt(frame, state, area);
     }
 }
 
 fn draw_search(frame: &mut Frame, state: &AppState, area: Rect) {
-    let focused = state.focus == Focus::Search;
+    let focused = state.nav.focus == Focus::Search;
     let flags = format!(
         " {}{}{} ",
-        if state.search.case_insensitive { "A" } else { "a" },
-        if state.search.regex { "R" } else { "r" },
-        if state.search.scope_is_all() { "F" } else { "f" },
+        if state.query.search.case_insensitive { "A" } else { "a" },
+        if state.query.search.regex { "R" } else { "r" },
+        if state.query.search.scope_is_all() { "F" } else { "f" },
     );
-    let mut spans = vec![Span::styled(
-        "search: ",
-        Style::default().fg(ratatui::style::Color::DarkGray),
-    )];
-    let text = state.search_input.text();
+    let mut spans = vec![editor_label("search: ")];
+    let text = state.query.search_input.text();
     if focused {
-        spans.extend(cursor_spans(&text, state.search_input.cursor(), true));
+        spans.extend(cursor_spans(&text, state.query.search_input.cursor(), true));
     } else if text.is_empty() {
         spans.extend(key_spans("[/] to search", Style::default().fg(Color::DarkGray)));
     } else {
@@ -167,7 +167,7 @@ fn cursor_spans(text: &str, cursor: usize, focused: bool) -> Vec<Span<'static>> 
 }
 
 fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect, chips: &ChipLayout) {
-    state.chip_cells.clear();
+    state.geometry.chip_cells.clear();
     let hint_base = Style::default().fg(Color::DarkGray);
     let mut hint_spans = vec![Span::styled("filters: ", hint_base)];
     hint_spans.extend(key_spans(CHIPS_HINT, hint_base));
@@ -181,22 +181,23 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect, chips: &ChipL
         let mut spans: Vec<Span<'static>> = Vec::new();
         let mut x = 0u16;
         for &index in indices {
-            let focused = state.focus == Focus::FilterChips && state.filter_cursor == index;
+            let focused = state.nav.focus == Focus::FilterChips && state.nav.filter_cursor == index;
             let base = if focused {
                 Style::default().add_modifier(Modifier::REVERSED)
             } else {
                 Style::default()
             };
             let brackets = base.fg(Color::DarkGray);
-            let body = predicate_spans(&state.filters[index], base);
+            let body = predicate_spans(&state.query.filters[index], base);
             let body_width: usize = body.iter().map(span_width).sum();
-            let length = u16::try_from(body_width + 3).unwrap_or(u16::MAX);
+            let length = u16_len(body_width + 3);
             spans.push(Span::styled("[", brackets));
             spans.extend(body);
             spans.push(Span::styled("] ", brackets));
             let start = x;
             let cell_row = u16::try_from(row + 1).unwrap_or(1);
             state
+                .geometry
                 .chip_cells
                 .push((start, start.saturating_add(length.saturating_sub(1)), index, cell_row));
             x = x.saturating_add(length);
@@ -206,7 +207,7 @@ fn draw_chips(frame: &mut Frame, state: &mut AppState, area: Rect, chips: &ChipL
         }
         lines.push(Line::from(spans));
     }
-    if state.focus == Focus::FilterChips {
+    if state.nav.focus == Focus::FilterChips {
         let prompt = key_spans(CHIP_PROMPTS, Style::default().fg(Color::DarkGray));
         lines.push(Line::from(prompt));
     }
@@ -309,67 +310,43 @@ fn wrap_prompt(text: &str, width: usize) -> Vec<String> {
 /// Colored spans for one predicate: gray field, green/soft-red operator, plain pattern.
 fn predicate_spans(predicate: &Predicate, base: Style) -> Vec<Span<'static>> {
     let muted = base.fg(Color::DarkGray);
-    match predicate {
-        Predicate::Leaf { field, op, matcher } => {
-            let mut spans = vec![
-                Span::styled(field.to_string(), base.fg(Color::Gray)),
-                Span::styled(
-                    if matcher.is_some() {
-                        format!(" {} ", op.token())
-                    } else {
-                        format!(" {}", op.token())
-                    },
-                    base.patch(op.style().ratatui()),
-                ),
-            ];
-            if let Some(matcher) = matcher {
-                let style = if predicate.has_glob() {
-                    base
-                } else {
-                    base.fg(Color::Gray)
-                };
-                spans.push(Span::styled(matcher.pattern.clone(), style));
-            }
-            spans
-        },
-        Predicate::All(children) => join_predicate_spans(children, "and", base),
-        Predicate::Any(children) => join_predicate_spans(children, "or", base),
-        Predicate::Not(child) => {
-            let mut spans = vec![Span::styled("not ", muted)];
-            let needs_paren = matches!(child.as_ref(), Predicate::Any(_));
-            if needs_paren {
-                spans.push(Span::styled("(", muted));
-            }
-            spans.extend(predicate_spans(child, base));
-            if needs_paren {
-                spans.push(Span::styled(")", muted));
-            }
-            spans
-        },
-    }
-}
-
-fn join_predicate_spans(children: &[Predicate], separator: &str, base: Style) -> Vec<Span<'static>> {
-    let muted = base.fg(Color::DarkGray);
+    let mut pieces = Vec::new();
+    predicate.render_pieces(&mut pieces);
     let mut spans = Vec::new();
-    for (index, child) in children.iter().enumerate() {
-        if index > 0 {
-            spans.push(Span::styled(format!(" {separator} "), muted));
-        }
-        let needs_paren = matches!(child, Predicate::All(_) | Predicate::Any(_));
-        if needs_paren {
-            spans.push(Span::styled("(", muted));
-        }
-        spans.extend(predicate_spans(child, base));
-        if needs_paren {
-            spans.push(Span::styled(")", muted));
+    for piece in pieces {
+        match piece {
+            Piece::Field(field) => spans.push(Span::styled(field.to_string(), base.fg(Color::Gray))),
+            Piece::Op {
+                token,
+                style,
+                with_pattern,
+            } => {
+                let text = if with_pattern {
+                    format!(" {token} ")
+                } else {
+                    format!(" {token}")
+                };
+                spans.push(Span::styled(text, base.patch(style.ratatui())));
+            },
+            Piece::Pattern { text, plain } => {
+                let style = if plain { base.fg(Color::Gray) } else { base };
+                spans.push(Span::styled(text.to_owned(), style));
+            },
+            Piece::Keyword(word) => spans.push(Span::styled(format!(" {word} "), muted)),
+            Piece::Not => spans.push(Span::styled("not ", muted)),
+            Piece::Paren(ch) => spans.push(Span::styled(ch.to_string(), muted)),
         }
     }
     spans
 }
 
 fn span_width(span: &Span<'_>) -> usize {
-    span.content.chars().count()
+    crate::render::text::width(span.content.as_ref())
+}
+
+/// Label of a line editor, dim: the search, filter and pop-up prompts share it.
+fn editor_label(text: &'static str) -> Span<'static> {
+    Span::styled(text, Style::default().fg(Color::DarkGray))
 }
 
 /// Prompt text with `[key]` tokens rendered with a background; the rest uses `base`.
@@ -440,9 +417,9 @@ pub fn highlight_label(label: &str, needle: &str) -> Vec<Span<'static>> {
 }
 
 fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
-    let focused = state.focus == Focus::FilterInput;
-    let text = state.filter_input.text();
-    let wizard_suffix = state.wizard.as_ref().map(|wizard| match wizard.phase {
+    let focused = state.nav.focus == Focus::FilterInput;
+    let text = state.query.filter_input.text();
+    let wizard_suffix = state.overlays.wizard.as_ref().map(|wizard| match wizard.phase {
         WizardPhase::Field => "  1/3 field  [Up]/[Down] selects, [Enter] picks, [Esc] exits",
         WizardPhase::Operator => "  2/3 operator  [Up]/[Down], [Enter], type [=] [!] [~] [n] [e] [E]",
         WizardPhase::Pattern => "  3/3 pattern  [Enter] applies, [Backspace] goes back",
@@ -450,11 +427,8 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
     if !focused && text.is_empty() && wizard_suffix.is_none() {
         return;
     }
-    let mut spans = vec![Span::styled(
-        "filter: ",
-        Style::default().fg(ratatui::style::Color::DarkGray),
-    )];
-    spans.extend(cursor_spans(&text, state.filter_input.cursor(), focused));
+    let mut spans = vec![editor_label("filter: ")];
+    spans.extend(cursor_spans(&text, state.query.filter_input.cursor(), focused));
     let suffix_base = Style::default().fg(Color::DarkGray);
     if let Some(suffix) = wizard_suffix {
         spans.extend(key_spans(suffix, suffix_base));
@@ -466,10 +440,10 @@ fn draw_filter_input(frame: &mut Frame, state: &AppState, area: Rect) {
 
 /// Autocomplete list under the filter input while the guided builder is open.
 fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
-    state.areas.dropdown = Rect::default();
-    let (phase, cursor, items): (WizardPhase, usize, Vec<ListItem>) = match state.wizard.as_ref() {
+    state.geometry.areas.dropdown = Rect::default();
+    let (phase, cursor, items): (WizardPhase, usize, Vec<ListItem>) = match state.overlays.wizard.as_ref() {
         Some(wizard) if wizard.phase == WizardPhase::Field => {
-            let needle = state.filter_input.text().to_ascii_lowercase();
+            let needle = state.query.filter_input.text().to_ascii_lowercase();
             (
                 wizard.phase,
                 wizard.cursor,
@@ -500,7 +474,7 @@ fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
     if items.is_empty() {
         return;
     }
-    let y = state.areas.filter.y.saturating_add(1);
+    let y = state.geometry.areas.filter.y.saturating_add(1);
     if y >= screen.y.saturating_add(screen.height) {
         return;
     }
@@ -516,32 +490,18 @@ fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
         width: screen.width.min(72),
         height,
     };
-    state.areas.dropdown = rect;
+    state.geometry.areas.dropdown = rect;
     frame.render_widget(Clear, rect);
     let title = match phase {
         WizardPhase::Field => " fields (Enter) ",
         WizardPhase::Operator => " operators (Enter) ",
         WizardPhase::Pattern => "",
     };
-    let block = Block::bordered()
-        .title(Line::from(title))
-        .border_style(Style::default().fg(Color::DarkGray));
-    let inner = block.inner(rect);
-    frame.render_widget(block, rect);
+    let inner = popup_block(frame, rect, Line::from(title), None);
     if inner.height == 0 || inner.width == 0 {
         return;
     }
-    let visible = usize::from(inner.height);
-    let selected = cursor.min(items.len().saturating_sub(1));
-    let mut list_state = ListState::default();
-    list_state.select(Some(selected));
-    if selected >= visible {
-        *list_state.offset_mut() = selected - visible + 1;
-    }
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    frame.render_stateful_widget(list, inner, &mut list_state);
+    highlighted_list(frame, items, cursor, inner);
 }
 
 fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
@@ -555,14 +515,14 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
         return;
     }
 
-    let start = state.rows_scroll;
-    let visible: Vec<u32> = state.view.rows.iter().copied().skip(start).take(body_height).collect();
+    let start = state.nav.rows_scroll;
+    let visible = visible_rows(state, body_height);
     let rows_cells: Vec<Vec<Cell>> = visible
         .iter()
         .map(|index| {
             state
                 .store
-                .record(usize::try_from(*index).unwrap_or(usize::MAX))
+                .record_of(*index)
                 .map(|record| table_cells(record, &state.columns, state.source_label(record), &state.config))
                 .unwrap_or_default()
         })
@@ -575,21 +535,21 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
 
     let header_row = build_header_row(state, &headers, &widths);
     let mut table_state = TableState::default();
-    table_state.select(Some(state.cursor.saturating_sub(start)));
+    table_state.select(Some(state.nav.cursor.saturating_sub(start)));
 
-    let picking = state.focus == Focus::Rows && state.row_mode == RowMode::Pick;
+    let picking = state.nav.focus == Focus::Rows && state.nav.row_mode == RowMode::Pick;
     let rows: Vec<Row> = rows_cells
         .iter()
         .enumerate()
         .map(|(offset, cells)| {
-            let highlighted = highlight(cells.clone(), &state.regexes);
-            let mark_pick = picking && start + offset == state.cursor;
+            let highlighted = highlight(cells.clone(), &state.query.regexes);
+            let mark_pick = picking && start + offset == state.nav.cursor;
             let tui_cells: Vec<TuiCell<'static>> = highlighted
                 .iter()
                 .enumerate()
                 .map(|(position, cell)| {
                     let mut style = cell.style.ratatui();
-                    if mark_pick && position == state.pick_cursor {
+                    if mark_pick && position == state.nav.pick_cursor {
                         style = style.bg(Color::LightBlue).fg(Color::Black);
                     }
                     TuiCell::from(cell.text.clone()).style(style)
@@ -599,37 +559,27 @@ fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
         })
         .collect();
 
-    let table = Table::new(
-        rows,
-        widths
-            .iter()
-            .map(|w| Constraint::Length(u16::try_from(*w).unwrap_or(u16::MAX))),
-    )
-    .header(header_row)
-    .column_spacing(2)
-    .highlight_symbol("")
-    .highlight_spacing(HighlightSpacing::Never)
-    .row_highlight_style(Style::default().add_modifier(ratatui::style::Modifier::REVERSED))
-    .flex(Flex::Legacy);
+    let table = Table::new(rows, widths.iter().map(|w| Constraint::Length(u16_len(*w))))
+        .header(header_row)
+        .column_spacing(2)
+        .highlight_symbol("")
+        .highlight_spacing(HighlightSpacing::Never)
+        .row_highlight_style(Style::default().add_modifier(ratatui::style::Modifier::REVERSED))
+        .flex(Flex::Legacy);
     frame.render_stateful_widget(table, area, &mut table_state);
 }
 
 fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: RenderChoice, body_height: usize) {
-    let start = state.rows_scroll;
-    let rows: Vec<Row> = state
-        .view
-        .rows
+    let start = state.nav.rows_scroll;
+    let rows: Vec<Row> = visible_rows(state, body_height)
         .iter()
-        .copied()
-        .skip(start)
-        .take(body_height)
         .map(|index| {
             let cells = state
                 .store
-                .record(usize::try_from(index).unwrap_or(usize::MAX))
+                .record_of(*index)
                 .map(|record| {
                     let cells = render_record(record, mode, &state.columns, state.source_label(record), &state.config);
-                    highlight(cells, &state.regexes)
+                    highlight(cells, &state.query.regexes)
                 })
                 .unwrap_or_default();
             Row::new(cells.iter().map(to_tui_cell))
@@ -642,27 +592,39 @@ fn draw_text_rows(frame: &mut Frame, state: &mut AppState, area: Rect, mode: Ren
         String::new()
     })]);
     let mut table_state = TableState::default();
-    table_state.select(Some(state.cursor.saturating_sub(start)));
+    table_state.select(Some(state.nav.cursor.saturating_sub(start)));
     let table = Table::new(rows, [Constraint::Fill(1)])
         .header(header)
         .highlight_symbol("")
         .highlight_spacing(HighlightSpacing::Never)
         .row_highlight_style(Style::default().add_modifier(ratatui::style::Modifier::REVERSED));
-    state.header_cells.clear();
+    state.geometry.header_cells.clear();
     frame.render_stateful_widget(table, area, &mut table_state);
+}
+
+/// The view indices to draw: the window of `body_height` lines at the rows scroll.
+fn visible_rows(state: &AppState, body_height: usize) -> Vec<u32> {
+    state
+        .view
+        .rows
+        .iter()
+        .copied()
+        .skip(state.nav.rows_scroll)
+        .take(body_height)
+        .collect()
 }
 
 fn keep_cursor_visible(state: &mut AppState, body_height: usize) {
     if body_height == 0 {
         return;
     }
-    let body = u16::try_from(body_height).unwrap_or(u16::MAX);
-    if state.cursor < state.rows_scroll {
-        state.rows_scroll = state.cursor;
-    } else if state.cursor >= state.rows_scroll + body_height {
-        state.rows_scroll = state.cursor.saturating_sub(body_height - 1);
+    let body = u16_len(body_height);
+    if state.nav.cursor < state.nav.rows_scroll {
+        state.nav.rows_scroll = state.nav.cursor;
+    } else if state.nav.cursor >= state.nav.rows_scroll + body_height {
+        state.nav.rows_scroll = state.nav.cursor.saturating_sub(body_height - 1);
     }
-    state.areas.rows.height = state.areas.rows.height.max(body);
+    state.geometry.areas.rows.height = state.geometry.areas.rows.height.max(body);
 }
 
 fn header_labels(state: &AppState) -> Vec<String> {
@@ -680,7 +642,7 @@ fn header_labels(state: &AppState) -> Vec<String> {
 }
 
 fn build_header_row<'a>(state: &'a AppState, headers: &[String], widths: &[usize]) -> Row<'a> {
-    let focused = state.focus == Focus::Header;
+    let focused = state.nav.focus == Focus::Header;
     let cells = headers.iter().enumerate().map(|(index, label)| {
         let column: Option<&Column> = state.columns.get(index);
         let is_key = column.map(|column| state.sort_of(column).is_some()).unwrap_or(false);
@@ -690,7 +652,7 @@ fn build_header_row<'a>(state: &'a AppState, headers: &[String], widths: &[usize
         if is_key {
             style = style.add_modifier(ratatui::style::Modifier::UNDERLINED);
         }
-        if focused && state.header_cursor == index {
+        if focused && state.nav.header_cursor == index {
             style = style.add_modifier(ratatui::style::Modifier::REVERSED);
         }
         let text = pad(label, widths.get(index).copied().unwrap_or(0));
@@ -700,13 +662,13 @@ fn build_header_row<'a>(state: &'a AppState, headers: &[String], widths: &[usize
 }
 
 fn record_header_cells(state: &mut AppState, widths: &[usize], area: Rect) {
-    state.header_cells.clear();
+    state.geometry.header_cells.clear();
     let mut x = 0u16;
     for (index, width) in widths.iter().enumerate() {
-        let width_u16 = u16::try_from(*width).unwrap_or(u16::MAX);
+        let width_u16 = u16_len(*width);
         let start = x;
         let end = start.saturating_add(width_u16.saturating_sub(1));
-        state.header_cells.push((start, end, index));
+        state.geometry.header_cells.push((start, end, index));
         x = x.saturating_add(width_u16).saturating_add(2);
     }
     let _ = area;
@@ -714,13 +676,6 @@ fn record_header_cells(state: &mut AppState, widths: &[usize], area: Rect) {
 
 fn to_tui_cell(cell: &Cell) -> TuiCell<'static> {
     TuiCell::from(cell.text.clone()).style(cell.style.ratatui())
-}
-
-fn pad(text: &str, column: usize) -> String {
-    let mut out = crate::render::text::truncate(text, column);
-    let missing = column.saturating_sub(crate::render::text::width(&out));
-    out.push_str(&" ".repeat(missing));
-    out
 }
 
 fn draw_status(frame: &mut Frame, state: &AppState, area: Rect) {
@@ -732,7 +687,7 @@ fn draw_status(frame: &mut Frame, state: &AppState, area: Rect) {
         spans.push(Span::styled(text, style));
     };
     push(&mut spans, &mut used, state.status.clone(), reversed);
-    for (index, (label, dir)) in state.sort_marks.iter().enumerate() {
+    for (index, (label, dir)) in state.query.sort_marks.iter().enumerate() {
         let separator = if index == 0 { " | sort " } else { "," };
         push(&mut spans, &mut used, separator.to_owned(), reversed);
         push(&mut spans, &mut used, label.clone(), reversed);
@@ -760,11 +715,44 @@ pub fn centered(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
     }
 }
 
+/// Draws a popup's bordered frame and returns the inner area for its content.
+pub fn popup_block(frame: &mut Frame, area: Rect, title: Line<'static>, bottom: Option<Line<'static>>) -> Rect {
+    let mut block = Block::bordered()
+        .title(title)
+        .border_style(Style::default().fg(Color::DarkGray));
+    if let Some(bottom) = bottom {
+        block = block.title_bottom(bottom);
+    }
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    inner
+}
+
+/// The scroll offset (in lines) that keeps `cursor` visible in a `visible` tall window.
+pub const fn scroll_to_fit(cursor: usize, visible: usize) -> usize {
+    cursor.saturating_sub(visible.saturating_sub(1))
+}
+
+/// Draws a `>` highlighted list with `cursor` kept visible.
+pub fn highlighted_list(frame: &mut Frame, items: Vec<ListItem>, cursor: usize, area: Rect) {
+    let mut list_state = ListState::default();
+    let selected = cursor.min(items.len().saturating_sub(1));
+    list_state.select(Some(selected));
+    *list_state.offset_mut() = scroll_to_fit(selected, usize::from(area.height).max(1));
+    frame.render_stateful_widget(
+        List::new(items)
+            .highlight_symbol("> ")
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+        area,
+        &mut list_state,
+    );
+}
+
 /// The update line under the status bar: update button on the left, changelog on the right.
 /// The button rects are recorded in `state` for mouse hit testing.
 fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    state.update_btn = Rect::default();
-    state.changelog_btn = Rect::default();
+    state.update.btn_rect = Rect::default();
+    state.update.changelog_btn = Rect::default();
     if area.height == 0 {
         return;
     }
@@ -774,7 +762,7 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let width = usize::from(area.width);
     let right_w = crate::render::text::width(&right).min(width);
     // A cargo install is updated by cargo, not by the self-update (see `cargo_managed_install`).
-    let action = if state.update_cargo_managed {
+    let action = if state.update.cargo_managed {
         "update using cargo"
     } else {
         "click to update"
@@ -786,8 +774,8 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
     // so the user can see the text goes on.
     let left = crate::render::text::truncate(&text, width.saturating_sub(right_w).max(1));
     // The focused button (Tab to the line, Left/Right to choose) is the brighter variant.
-    let focused_update = state.focus == Focus::UpdateLine && state.update_focus_index == 0;
-    let focused_changelog = state.focus == Focus::UpdateLine && state.update_focus_index == 1;
+    let focused_update = state.nav.focus == Focus::UpdateLine && state.update.focus_index == 0;
+    let focused_changelog = state.nav.focus == Focus::UpdateLine && state.update.focus_index == 1;
     let left_style = Style::default()
         .fg(Color::Black)
         .bg(if focused_update {
@@ -810,13 +798,13 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
         });
     let left_w = crate::render::text::width(&left).min(width);
     let right_x = width.saturating_sub(right_w);
-    state.update_btn = Rect {
+    state.update.btn_rect = Rect {
         x: area.x,
         y: area.y,
         width: u16::try_from(left_w).unwrap_or(area.width),
         height: 1,
     };
-    state.changelog_btn = Rect {
+    state.update.changelog_btn = Rect {
         x: area.x + u16::try_from(right_x).unwrap_or(area.width),
         y: area.y,
         width: u16::try_from(right_w).unwrap_or(area.width),
@@ -825,7 +813,7 @@ fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
     if right_x < left_w {
         // A squeezed line: the changelog button wins the overlap, the update button
         // gets no click rect (a click there means the changelog, drawing stays as is).
-        state.update_btn = Rect::default();
+        state.update.btn_rect = Rect::default();
     }
     let fill = " ".repeat(width.saturating_sub(left_w).saturating_sub(right_w));
     let line = Line::from(vec![
@@ -876,11 +864,11 @@ fn changelog_lines(notes: &[crate::update::ReleaseNote], width: usize) -> Vec<Li
 /// (see the `ChangelogState` notes).
 fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
     let latest = state.update_latest().unwrap_or_default().to_owned();
-    let Some(changelog) = state.changelog.as_mut() else {
+    let Some(changelog) = state.update.changelog.as_mut() else {
         return 0;
     };
     if changelog.lines.is_empty() || changelog.width != width || changelog.version != latest {
-        let notes = state.update_available.clone().unwrap_or_default();
+        let notes = state.update.available.clone().unwrap_or_default();
         changelog.lines = changelog_lines(&notes, width);
         changelog.width = width;
         changelog.version = latest;
@@ -893,29 +881,29 @@ fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
 }
 
 fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
-    let latest = state
-        .update_available
-        .as_ref()
-        .and_then(|notes| notes.first())
-        .map(|note| note.version.clone())
-        .unwrap_or_default();
+    let latest = state.update_latest().unwrap_or_default().to_owned();
     let current = crate::update::current_version();
-    let block = Block::bordered()
-        .title(format!(" changes: silv {current} -> {latest} "))
-        .title_bottom(" j/k scroll, g/G ends, q/Esc closes ")
-        .border_style(Style::default().fg(Color::DarkGray));
-    let inner = block.inner(area);
     frame.render_widget(Clear, area);
-    frame.render_widget(block, area);
+    let inner = popup_block(
+        frame,
+        area,
+        Line::from(format!(" changes: silv {current} -> {latest} ")),
+        Some(Line::from(" j/k scroll, g/G ends, q/Esc closes ")),
+    );
 
     let scroll = changelog_scroll(state, usize::from(inner.width), usize::from(inner.height));
-    let lines = state.changelog.as_ref().map(|c| c.lines.clone()).unwrap_or_default();
-    let paragraph = Paragraph::new(lines).scroll((u16::try_from(scroll).unwrap_or(u16::MAX), 0));
+    let lines = state
+        .update
+        .changelog
+        .as_ref()
+        .map(|c| c.lines.clone())
+        .unwrap_or_default();
+    let paragraph = Paragraph::new(lines).scroll((u16_len(scroll), 0));
     frame.render_widget(paragraph, inner);
 }
 
 fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
-    let Some(prompt) = state.repo_prompt.as_ref() else {
+    let Some(prompt) = state.update.repo_prompt.as_ref() else {
         return;
     };
     let width = area.width.clamp(40, 76);
@@ -925,13 +913,9 @@ fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
         width,
         height: 7.min(area.height),
     };
-    let block = Block::bordered()
-        .title(" update: repository ")
-        .title_bottom(" Enter applies, Esc cancels ")
-        .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(Clear, popup);
-    frame.render_widget(block.clone(), popup);
-    let inner = block.inner(popup);
+    let inner =
+        popup_block(frame, popup, Line::from(" update: repository "), Some(Line::from(" Enter applies, Esc cancels ")));
     let message = Paragraph::new(prompt.message.clone()).wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(message, inner);
     let editor_rect = Rect {
@@ -941,7 +925,7 @@ fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
         height: 1,
     };
     let text = prompt.editor.text();
-    let spans = std::iter::once(Span::styled("repo url: ", Style::default().fg(Color::DarkGray)))
+    let spans = std::iter::once(editor_label("repo url: "))
         .chain(cursor_spans(&text, prompt.editor.cursor(), true))
         .collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(Line::from(spans)), editor_rect);

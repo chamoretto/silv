@@ -267,10 +267,7 @@ mod tests {
     use crate::model::record::FieldAliases;
     use crate::render::color::Sg;
 
-    fn record(text: &str) -> LogRecord {
-        let object = serde_json::from_str(text).expect("fixture object");
-        LogRecord::from_object(0, 1, 0, object, &FieldAliases::with_defaults(&[], &[], &[]).expect("aliases"))
-    }
+    use crate::fixtures::record;
 
     fn joined(cells: &[Cell]) -> String {
         cells.iter().map(|cell| cell.text.as_str()).collect()

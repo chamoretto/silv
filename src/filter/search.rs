@@ -92,10 +92,7 @@ impl SearchSpec {
                     MatchKind::Contains => regex::escape(pattern),
                     MatchKind::Glob => glob_to_regex_source(pattern),
                 };
-                regex::RegexBuilder::new(&source)
-                    .case_insensitive(self.case_insensitive)
-                    .build()
-                    .ok()
+                crate::filter::predicate::compile_ci_regex(&source, self.case_insensitive).ok()
             })
             .collect()
     }
@@ -120,19 +117,9 @@ fn glob_to_regex_source(pattern: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::record::FieldAliases;
     use std::str::FromStr;
 
-    fn record(text: &str) -> crate::model::record::LogRecord {
-        let object = serde_json::from_str(text).expect("fixture object");
-        crate::model::record::LogRecord::from_object(
-            0,
-            1,
-            0,
-            object,
-            &FieldAliases::with_defaults(&[], &[], &[]).expect("aliases"),
-        )
-    }
+    use crate::fixtures::record;
 
     #[test]
     fn substring_search_descends_and_is_case_insensitive() {

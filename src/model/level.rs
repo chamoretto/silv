@@ -4,36 +4,29 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::str::FromStr;
 
+use strum::Display as StrumDisplay;
+use strum::IntoStaticStr;
+
 /// Known severities, ordered from the least to the most severe.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, IntoStaticStr, StrumDisplay)]
 pub enum Level {
+    #[strum(to_string = "TRACE")]
     Trace,
+    #[strum(to_string = "DEBUG")]
     Debug,
+    #[strum(to_string = "INFO")]
     Info,
+    #[strum(to_string = "WARN")]
     Warn,
+    #[strum(to_string = "ERROR")]
     Error,
+    #[strum(to_string = "FATAL")]
     Fatal,
 }
 
 impl Level {
-    pub const ALL: [Self; 6] = [
-        Self::Trace,
-        Self::Debug,
-        Self::Info,
-        Self::Warn,
-        Self::Error,
-        Self::Fatal,
-    ];
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Trace => "TRACE",
-            Self::Debug => "DEBUG",
-            Self::Info => "INFO",
-            Self::Warn => "WARN",
-            Self::Error => "ERROR",
-            Self::Fatal => "FATAL",
-        }
+    pub fn label(self) -> &'static str {
+        (&self).into()
     }
 
     pub const fn width() -> usize {
@@ -49,12 +42,6 @@ impl Level {
             Self::Error => 5,
             Self::Fatal => 6,
         }
-    }
-}
-
-impl Display for Level {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.label())
     }
 }
 

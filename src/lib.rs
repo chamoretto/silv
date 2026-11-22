@@ -9,6 +9,8 @@ pub mod cli;
 pub mod data;
 pub mod error;
 pub mod filter;
+#[cfg(test)]
+mod fixtures;
 pub mod model;
 pub mod parse;
 pub mod render;

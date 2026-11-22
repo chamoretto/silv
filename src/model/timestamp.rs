@@ -1,8 +1,8 @@
 //! Timestamp parsing and formatting for the common log conventions.
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::str::FromStr;
+
+use strum::Display as StrumDisplay;
 
 use chrono::DateTime;
 use chrono::Datelike;
@@ -41,48 +41,30 @@ const OFFSET_FORMATS: [&str; 4] = [
 ];
 
 /// How to render a timestamp value.
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, StrumDisplay)]
 pub enum TimeFormat {
     #[default]
+    #[strum(to_string = "utc")]
     UtcDateTime,
+    #[strum(to_string = "local")]
     LocalDateTime,
+    #[strum(to_string = "time-utc")]
     TimeUtc,
+    #[strum(to_string = "time-local")]
     TimeLocal,
+    #[strum(to_string = "rfc3339")]
     Rfc3339,
+    #[strum(to_string = "epoch")]
     Epoch,
+    #[strum(to_string = "raw")]
     Raw,
+    #[strum(to_string = "none")]
     None,
 }
 
 impl TimeFormat {
-    pub const ACCEPTED: [&'static str; 8] = [
-        "utc",
-        "local",
-        "time-utc",
-        "time-local",
-        "rfc3339",
-        "epoch",
-        "raw",
-        "none",
-    ];
-
     pub const fn is_none(self) -> bool {
         matches!(self, Self::None)
-    }
-}
-
-impl Display for TimeFormat {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::UtcDateTime => "utc",
-            Self::LocalDateTime => "local",
-            Self::TimeUtc => "time-utc",
-            Self::TimeLocal => "time-local",
-            Self::Rfc3339 => "rfc3339",
-            Self::Epoch => "epoch",
-            Self::Raw => "raw",
-            Self::None => "none",
-        })
     }
 }
 
@@ -341,9 +323,7 @@ fn parse_epoch(text: &str) -> Option<i128> {
 mod tests {
     use super::*;
 
-    fn ivalue(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::ivalue;
 
     #[test]
     fn epoch_units_are_detected_from_magnitude() {
@@ -428,7 +408,16 @@ mod tests {
 
     #[test]
     fn time_format_tokens_roundtrip() {
-        for token in TimeFormat::ACCEPTED {
+        for token in [
+            "utc",
+            "local",
+            "time-utc",
+            "time-local",
+            "rfc3339",
+            "epoch",
+            "raw",
+            "none",
+        ] {
             let parsed: TimeFormat = token.parse().expect("accepted token");
             assert_eq!(parsed.to_string(), token);
         }

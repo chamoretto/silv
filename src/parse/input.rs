@@ -151,21 +151,18 @@ fn matches_any(path: &Path, matchers: &[globset::GlobMatcher]) -> bool {
     matchers.iter().any(|m| m.is_match(&full) || m.is_match(&name))
 }
 
+fn read_err(path: String, cause: std::io::Error) -> SilvError {
+    SilvError::InputRead { path, cause }
+}
+
 fn collect_directory(dir: &Path, config: &Config, out: &mut Vec<PathBuf>) -> Result<()> {
-    let entries = std::fs::read_dir(dir).map_err(|cause| SilvError::InputRead {
-        path: dir.display().to_string(),
-        cause,
-    })?;
+    let entries = std::fs::read_dir(dir).map_err(|cause| read_err(dir.display().to_string(), cause))?;
     for entry in entries {
-        let entry = entry.map_err(|cause| SilvError::InputRead {
-            path: dir.display().to_string(),
-            cause,
-        })?;
+        let entry = entry.map_err(|cause| read_err(dir.display().to_string(), cause))?;
         let path = entry.path();
-        let file_type = entry.file_type().map_err(|cause| SilvError::InputRead {
-            path: path.display().to_string(),
-            cause,
-        })?;
+        let file_type = entry
+            .file_type()
+            .map_err(|cause| read_err(path.display().to_string(), cause))?;
         if file_type.is_dir() {
             if config.recursive {
                 collect_directory(&path, config, out)?;
@@ -179,31 +176,16 @@ fn collect_directory(dir: &Path, config: &Config, out: &mut Vec<PathBuf>) -> Res
 
 fn read_file(path: &Path) -> Result<RawSource> {
     let label = path.display().to_string();
-    let file = File::open(path).map_err(|cause| SilvError::InputRead {
-        path: label.clone(),
-        cause,
-    })?;
-    let size = file
-        .metadata()
-        .map_err(|cause| SilvError::InputRead {
-            path: label.clone(),
-            cause,
-        })?
-        .len();
+    let file = File::open(path).map_err(|cause| read_err(label.clone(), cause))?;
+    let size = file.metadata().map_err(|cause| read_err(label.clone(), cause))?.len();
     let data = if size >= MMAP_THRESHOLD {
-        let map = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|cause| SilvError::InputRead {
-            path: label.clone(),
-            cause,
-        })?;
+        let map = unsafe { memmap2::MmapOptions::new().map(&file) }.map_err(|cause| read_err(label.clone(), cause))?;
         SourceData::Mapped(map)
     } else {
         let mut bytes = Vec::with_capacity(size as usize);
         file.take(size + 1)
             .read_to_end(&mut bytes)
-            .map_err(|cause| SilvError::InputRead {
-                path: label.clone(),
-                cause,
-            })?;
+            .map_err(|cause| read_err(label.clone(), cause))?;
         SourceData::Owned(bytes)
     };
     Ok(RawSource { label, data })
@@ -214,10 +196,7 @@ fn read_stdin() -> Result<RawSource> {
     std::io::stdin()
         .lock()
         .read_to_end(&mut bytes)
-        .map_err(|cause| SilvError::InputRead {
-            path: STDIN_LABEL.to_owned(),
-            cause,
-        })?;
+        .map_err(|cause| read_err(STDIN_LABEL.to_owned(), cause))?;
     Ok(RawSource {
         label: STDIN_LABEL.to_owned(),
         data: SourceData::Owned(bytes),

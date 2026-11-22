@@ -170,9 +170,7 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-    fn value(json: serde_json::Value) -> IValue {
-        ijson::to_value(json).expect("fixture value")
-    }
+    use crate::fixtures::ivalue as value;
 
     #[test]
     fn text_of_borrows_strings() {

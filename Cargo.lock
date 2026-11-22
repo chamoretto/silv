@@ -2839,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "silv"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "bumpalo",
  "chrono",
@@ -2848,6 +2848,7 @@ dependencies = [
  "compact_str 0.10.0",
  "crossterm",
  "datavalue-rs",
+ "displaydoc",
  "globset",
  "hipstr",
  "ijson",
@@ -2865,6 +2866,7 @@ dependencies = [
  "smartstring",
  "smol_str",
  "sonic-rs",
+ "strum",
  "thiserror 2.0.21",
  "thunderdome",
  "tinyvec",

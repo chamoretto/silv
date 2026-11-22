@@ -8,7 +8,6 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::widgets::Block;
 use ratatui::widgets::Cell as TuiCell;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Row;
@@ -17,16 +16,18 @@ use ratatui::widgets::TableState;
 
 use crate::app::state::PickerState;
 use crate::app::ui::highlight_label;
+use crate::app::ui::popup_block;
+use crate::app::ui::scroll_to_fit;
 use crate::render::text::truncate;
 
 /// Draws the picker inside `area` (already cleared by the caller).
 pub fn draw(frame: &mut Frame, picker: &PickerState, area: Rect, _enabled: bool) {
-    let block = Block::bordered()
-        .title(" fields ")
-        .title_bottom(" Enter/Space toggles the column, type to filter, Esc closes ")
-        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = popup_block(
+        frame,
+        area,
+        Line::from(" fields "),
+        Some(Line::from(" Enter/Space toggles the column, type to filter, Esc closes ")),
+    );
 
     let rects = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(inner);
     frame.render_widget(
@@ -39,11 +40,7 @@ pub fn draw(frame: &mut Frame, picker: &PickerState, area: Rect, _enabled: bool)
 
     let visible = usize::from(rects[1].height).max(1);
     let needle = picker.input.text().to_ascii_lowercase();
-    let scroll = if picker.cursor >= visible {
-        picker.cursor - visible + 1
-    } else {
-        0
-    };
+    let scroll = scroll_to_fit(picker.cursor, visible);
     let rows: Vec<Row> = picker
         .matches
         .iter()
