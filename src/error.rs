@@ -1,7 +1,5 @@
 //! Diagnostic codes and error types shown to the user.
 
-use std::fmt::Display;
-
 use miette::Diagnostic;
 use miette::LabeledSpan;
 use miette::NamedSource;
@@ -167,17 +165,10 @@ pub struct ParseDetail {
 }
 
 /// Marks a diagnostic that should not abort the run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, displaydoc::Display)]
 pub enum IssueSeverity {
+    /// warning
     Warning,
-}
-
-impl Display for IssueSeverity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Warning => f.write_str("warning"),
-        }
-    }
 }
 
 fn span_for_line(text: &str, line_start: usize) -> LabeledSpan {

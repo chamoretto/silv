@@ -5,26 +5,19 @@ pub mod input;
 pub mod jsonl;
 pub mod plain;
 
-use std::fmt::Display;
-use std::fmt::Formatter;
 use std::str::FromStr;
+
+use strum::Display as StrumDisplay;
 
 use crate::model::record::LogRecord;
 
 /// Log layout on disk.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, StrumDisplay)]
 pub enum LogFormat {
+    #[strum(to_string = "jsonl")]
     Jsonl,
+    #[strum(to_string = "plain")]
     Plain,
-}
-
-impl Display for LogFormat {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            Self::Jsonl => "jsonl",
-            Self::Plain => "plain",
-        })
-    }
 }
 
 impl FromStr for LogFormat {

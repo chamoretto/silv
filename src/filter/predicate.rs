@@ -4,6 +4,8 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 
 use miette::Result;
+use strum::Display as StrumDisplay;
+use strum::IntoStaticStr;
 
 use crate::error::SilvError;
 use crate::model::field::FieldPath;
@@ -107,26 +109,25 @@ impl Matcher {
 }
 
 /// Comparison applied at a leaf.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, IntoStaticStr, StrumDisplay)]
 pub enum LeafOp {
+    #[strum(to_string = "=")]
     Eq,
+    #[strum(to_string = "!=")]
     Neq,
+    #[strum(to_string = "^")]
     Exists,
+    #[strum(to_string = "!^")]
     NotExists,
+    #[strum(to_string = "~")]
     Contains,
+    #[strum(to_string = "!~")]
     NotContains,
 }
 
 impl LeafOp {
-    pub const fn token(self) -> &'static str {
-        match self {
-            Self::Eq => "=",
-            Self::Neq => "!=",
-            Self::Exists => "^",
-            Self::NotExists => "!^",
-            Self::Contains => "~",
-            Self::NotContains => "!~",
-        }
+    pub fn token(self) -> &'static str {
+        (&self).into()
     }
 
     pub const fn takes_pattern(self) -> bool {
@@ -144,12 +145,6 @@ impl LeafOp {
         } else {
             crate::render::color::Sg::OpPositive
         }
-    }
-}
-
-impl Display for LeafOp {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.token())
     }
 }
 

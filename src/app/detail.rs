@@ -18,6 +18,8 @@ use ratatui::widgets::Paragraph;
 use ratatui::widgets::Row;
 use ratatui::widgets::Table;
 use ratatui::widgets::TableState;
+use strum::EnumCount;
+use strum::IntoEnumIterator;
 
 use crate::app::state::AppState;
 use crate::app::state::DetailState;
@@ -146,7 +148,7 @@ fn draw_fields(frame: &mut Frame, state: &AppState, detail: &DetailState, area: 
 
 fn draw_menu(frame: &mut Frame, detail: &DetailState, area: Rect) {
     let width = 34u16;
-    let height = u16::try_from(MenuAction::ALL.len() + 2).unwrap_or(u16::MAX);
+    let height = u16::try_from(MenuAction::COUNT + 2).unwrap_or(u16::MAX);
     let menu_area = Rect {
         x: area.x + area.width.saturating_sub(width) / 2,
         y: area.y + area.height.saturating_sub(height) / 2,
@@ -159,8 +161,7 @@ fn draw_menu(frame: &mut Frame, detail: &DetailState, area: Rect) {
     frame.render_widget(block, menu_area);
 
     let cursor = detail.menu.unwrap_or(0);
-    let items: Vec<ListItem> = MenuAction::ALL
-        .iter()
+    let items: Vec<ListItem> = MenuAction::iter()
         .map(|action| ListItem::new(Line::from(Span::styled(action.label().to_owned(), action.style().ratatui()))))
         .collect();
     let mut list_state = ListState::default();

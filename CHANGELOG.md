@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Replace hand-written enum tables with strum and displaydoc derives
+
 ### Documentation
 
 - *(agents)* Release-prep amends must guard the post-commit hook ([#8](https://github.com/chamoretto/silv/issues/8))

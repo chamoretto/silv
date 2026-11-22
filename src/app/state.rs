@@ -5,6 +5,10 @@ use ratatui::crossterm::event::KeyModifiers;
 use ratatui::crossterm::event::MouseEventKind;
 use ratatui::layout::Rect;
 use ratatui::text::Line;
+use strum::EnumCount;
+use strum::EnumIter;
+use strum::IntoEnumIterator;
+use strum::IntoStaticStr;
 
 use crate::app::input::Editor;
 use crate::app::keymap::KeyMap;
@@ -41,14 +45,20 @@ use crate::update::UpdateTarget;
 /// Live store, kept in RAM by design.
 pub type Store = LogStore;
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumIter, IntoStaticStr)]
 pub enum Focus {
+    #[strum(to_string = "search")]
     Search,
+    #[strum(to_string = "filters")]
     FilterChips,
+    #[strum(to_string = "filter")]
     FilterInput,
+    #[strum(to_string = "fields")]
     Header,
+    #[strum(to_string = "rows")]
     Rows,
     /// The bottom update line; in the Tab cycle only while the line is drawn.
+    #[strum(to_string = "update")]
     UpdateLine,
 }
 
@@ -67,25 +77,8 @@ pub enum RowMode {
 }
 
 impl Focus {
-    /// Tab cycle order; `UpdateLine` joins the cycle only while the update line is drawn.
-    pub const ORDER: [Self; 6] = [
-        Self::Search,
-        Self::FilterChips,
-        Self::FilterInput,
-        Self::Header,
-        Self::Rows,
-        Self::UpdateLine,
-    ];
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Search => "search",
-            Self::FilterChips => "filters",
-            Self::FilterInput => "filter",
-            Self::Header => "fields",
-            Self::Rows => "rows",
-            Self::UpdateLine => "update",
-        }
+    pub fn label(self) -> &'static str {
+        (&self).into()
     }
 }
 
@@ -177,35 +170,25 @@ pub struct DetailField {
     pub path: Option<FieldPath>,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, EnumIter, EnumCount, IntoStaticStr)]
 pub enum MenuAction {
+    #[strum(to_string = "add or remove column")]
     ToggleColumn,
+    #[strum(to_string = "filter: field = value")]
     FilterEq,
+    #[strum(to_string = "filter: field != value")]
     FilterNeq,
+    #[strum(to_string = "filter: field contains value")]
     FilterContains,
+    #[strum(to_string = "filter: field exists")]
     Exists,
+    #[strum(to_string = "filter: field missing")]
     NotExists,
 }
 
 impl MenuAction {
-    pub const ALL: [Self; 6] = [
-        Self::ToggleColumn,
-        Self::FilterEq,
-        Self::FilterNeq,
-        Self::FilterContains,
-        Self::Exists,
-        Self::NotExists,
-    ];
-
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::ToggleColumn => "add or remove column",
-            Self::FilterEq => "filter: field = value",
-            Self::FilterNeq => "filter: field != value",
-            Self::FilterContains => "filter: field contains value",
-            Self::Exists => "filter: field exists",
-            Self::NotExists => "filter: field missing",
-        }
+    pub fn label(self) -> &'static str {
+        (&self).into()
     }
 
     pub const fn style(self) -> crate::render::color::Sg {
@@ -991,8 +974,7 @@ impl AppState {
     pub fn cycle_focus(&mut self, direction: isize) {
         // The update line joins the cycle only while it is drawn; when it hides,
         // a focus on it falls back to the rows.
-        let order: Vec<Focus> = Focus::ORDER
-            .into_iter()
+        let order: Vec<Focus> = Focus::iter()
             .filter(|focus| *focus != Focus::UpdateLine || self.update_line_visible())
             .collect();
         if order.iter().all(|focus| *focus != self.focus) {
@@ -1035,7 +1017,7 @@ impl AppState {
             return;
         };
         if let Some(menu) = detail.menu.as_mut() {
-            let len = MenuAction::ALL.len();
+            let len = MenuAction::COUNT;
             let current = isize::try_from(*menu).unwrap_or(0);
             let next = (current + delta).clamp(0, isize::try_from(len - 1).unwrap_or(0));
             *menu = usize::try_from(next).unwrap_or(0);
@@ -1079,7 +1061,9 @@ impl AppState {
         let (Some(detail), Some(menu)) = (self.detail.clone(), self.detail.as_ref().and_then(|d| d.menu)) else {
             return;
         };
-        let action = MenuAction::ALL[menu.min(MenuAction::ALL.len() - 1)];
+        let Some(action) = MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1)) else {
+            return;
+        };
         let Some(field) = detail.fields.get(detail.cursor) else {
             return;
         };
