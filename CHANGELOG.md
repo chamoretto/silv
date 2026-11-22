@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - *(app)* Split AppState module into app/state submodules by concern
 - *(app)* Group AppState fields into data-only substates
 - *(app)* Centralize Tab cycling, editor editing keys and overlay scrolling
+- *(app)* Share popup frame, highlighted list and scroll-to-fit helpers
 
 ### Documentation
 

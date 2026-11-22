@@ -525,25 +525,11 @@ fn draw_wizard_dropdown(frame: &mut Frame, state: &mut AppState, screen: Rect) {
         WizardPhase::Operator => " operators (Enter) ",
         WizardPhase::Pattern => "",
     };
-    let block = Block::bordered()
-        .title(Line::from(title))
-        .border_style(Style::default().fg(Color::DarkGray));
-    let inner = block.inner(rect);
-    frame.render_widget(block, rect);
+    let inner = popup_block(frame, rect, Line::from(title), None);
     if inner.height == 0 || inner.width == 0 {
         return;
     }
-    let visible = usize::from(inner.height);
-    let selected = cursor.min(items.len().saturating_sub(1));
-    let mut list_state = ListState::default();
-    list_state.select(Some(selected));
-    if selected >= visible {
-        *list_state.offset_mut() = selected - visible + 1;
-    }
-    let list = List::new(items)
-        .highlight_symbol("> ")
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    frame.render_stateful_widget(list, inner, &mut list_state);
+    highlighted_list(frame, items, cursor, inner);
 }
 
 fn draw_rows(frame: &mut Frame, state: &mut AppState, area: Rect) {
@@ -757,6 +743,39 @@ pub fn centered(area: Rect, width_percent: u16, height_percent: u16) -> Rect {
     }
 }
 
+/// Draws a popup's bordered frame and returns the inner area for its content.
+pub fn popup_block(frame: &mut Frame, area: Rect, title: Line<'static>, bottom: Option<Line<'static>>) -> Rect {
+    let mut block = Block::bordered()
+        .title(title)
+        .border_style(Style::default().fg(Color::DarkGray));
+    if let Some(bottom) = bottom {
+        block = block.title_bottom(bottom);
+    }
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    inner
+}
+
+/// The scroll offset (in lines) that keeps `cursor` visible in a `visible` tall window.
+pub const fn scroll_to_fit(cursor: usize, visible: usize) -> usize {
+    cursor.saturating_sub(visible.saturating_sub(1))
+}
+
+/// Draws a `>` highlighted list with `cursor` kept visible.
+pub fn highlighted_list(frame: &mut Frame, items: Vec<ListItem>, cursor: usize, area: Rect) {
+    let mut list_state = ListState::default();
+    let selected = cursor.min(items.len().saturating_sub(1));
+    list_state.select(Some(selected));
+    *list_state.offset_mut() = scroll_to_fit(selected, usize::from(area.height).max(1));
+    frame.render_stateful_widget(
+        List::new(items)
+            .highlight_symbol("> ")
+            .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
+        area,
+        &mut list_state,
+    );
+}
+
 /// The update line under the status bar: update button on the left, changelog on the right.
 /// The button rects are recorded in `state` for mouse hit testing.
 fn draw_update_line(frame: &mut Frame, state: &mut AppState, area: Rect) {
@@ -892,13 +911,13 @@ fn changelog_scroll(state: &mut AppState, width: usize, page: usize) -> usize {
 fn draw_changelog(frame: &mut Frame, state: &mut AppState, area: Rect) {
     let latest = state.update_latest().unwrap_or_default().to_owned();
     let current = crate::update::current_version();
-    let block = Block::bordered()
-        .title(format!(" changes: silv {current} -> {latest} "))
-        .title_bottom(" j/k scroll, g/G ends, q/Esc closes ")
-        .border_style(Style::default().fg(Color::DarkGray));
-    let inner = block.inner(area);
     frame.render_widget(Clear, area);
-    frame.render_widget(block, area);
+    let inner = popup_block(
+        frame,
+        area,
+        Line::from(format!(" changes: silv {current} -> {latest} ")),
+        Some(Line::from(" j/k scroll, g/G ends, q/Esc closes ")),
+    );
 
     let scroll = changelog_scroll(state, usize::from(inner.width), usize::from(inner.height));
     let lines = state
@@ -922,13 +941,13 @@ fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
         width,
         height: 7.min(area.height),
     };
-    let block = Block::bordered()
-        .title(" update: repository ")
-        .title_bottom(" Enter applies, Esc cancels ")
-        .border_style(Style::default().fg(Color::DarkGray));
     frame.render_widget(Clear, popup);
-    frame.render_widget(block.clone(), popup);
-    let inner = block.inner(popup);
+    let inner = popup_block(
+        frame,
+        popup,
+        Line::from(" update: repository "),
+        Some(Line::from(" Enter applies, Esc cancels ")),
+    );
     let message = Paragraph::new(prompt.message.clone()).wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(message, inner);
     let editor_rect = Rect {

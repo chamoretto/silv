@@ -6,8 +6,9 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::widgets::Block;
 use ratatui::widgets::Paragraph;
+
+use crate::app::ui::popup_block;
 
 const LINES: [&str; 30] = [
     "SILV - simple interactive log viewer",
@@ -44,12 +45,7 @@ const LINES: [&str; 30] = [
 
 /// Draws the help text inside `area` (already cleared by the caller).
 pub fn draw(frame: &mut Frame, area: Rect) {
-    let block = Block::bordered()
-        .title(" help ")
-        .title_bottom(" Esc closes ")
-        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+    let inner = popup_block(frame, area, Line::from(" help "), Some(Line::from(" Esc closes ")));
 
     let lines: Vec<Line> = LINES
         .iter()

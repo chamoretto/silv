@@ -8,12 +8,9 @@ use ratatui::style::Modifier;
 use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::text::Span;
-use ratatui::widgets::Block;
 use ratatui::widgets::Cell as TuiCell;
 use ratatui::widgets::Clear;
-use ratatui::widgets::List;
 use ratatui::widgets::ListItem;
-use ratatui::widgets::ListState;
 use ratatui::widgets::Paragraph;
 use ratatui::widgets::Row;
 use ratatui::widgets::Table;
@@ -24,7 +21,10 @@ use strum::IntoEnumIterator;
 use crate::app::state::AppState;
 use crate::app::state::DetailState;
 use crate::app::state::MenuAction;
+use crate::app::ui::highlighted_list;
 use crate::app::ui::key_spans;
+use crate::app::ui::popup_block;
+use crate::app::ui::scroll_to_fit;
 use crate::render::text::truncate;
 use crate::render::text::u16_len;
 use crate::render::text::width;
@@ -43,9 +43,11 @@ pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
         .unwrap_or_else(|| "record".to_owned());
     let title = format!(" record {record_line} of {} ", state.view.len());
 
-    let block = Block::bordered()
-        .title(Line::from(Span::styled(title, Style::default().add_modifier(Modifier::BOLD))))
-        .title_bottom(Line::from(format!(
+    let inner = popup_block(
+        frame,
+        area,
+        Line::from(Span::styled(title, Style::default().add_modifier(Modifier::BOLD))),
+        Some(Line::from(format!(
             " {}/{} ",
             detail.cursor + 1,
             if detail.json {
@@ -53,10 +55,8 @@ pub fn draw(frame: &mut Frame, state: &AppState, area: Rect) {
             } else {
                 detail.fields.len()
             }
-        )))
-        .border_style(Style::default().fg(ratatui::style::Color::DarkGray));
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
+        ))),
+    );
 
     // Control keys get their own line at the top of the content: the window header is too narrow.
     let rects = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).split(inner);
@@ -124,11 +124,7 @@ fn draw_fields(frame: &mut Frame, state: &AppState, detail: &DetailState, area: 
     let visible = usize::from(area.height).max(1);
     let selected = detail.cursor.min(detail.fields.len().saturating_sub(1));
     table_state.select(Some(selected));
-    let mut scroll = 0usize;
-    if selected >= visible {
-        scroll = selected - visible + 1;
-    }
-    *table_state.offset_mut() = scroll;
+    *table_state.offset_mut() = scroll_to_fit(selected, visible);
     let _ = state;
 
     frame.render_stateful_widget(
@@ -151,21 +147,11 @@ fn draw_menu(frame: &mut Frame, detail: &DetailState, area: Rect) {
         height: height.min(area.height),
     };
     frame.render_widget(Clear, menu_area);
-    let block = Block::bordered().title(" field action ");
-    let inner = block.inner(menu_area);
-    frame.render_widget(block, menu_area);
+    let inner = popup_block(frame, menu_area, Line::from(" field action "), None);
 
     let cursor = detail.menu.unwrap_or(0);
     let items: Vec<ListItem> = MenuAction::iter()
         .map(|action| ListItem::new(Line::from(Span::styled(action.label().to_owned(), action.style().ratatui()))))
         .collect();
-    let mut list_state = ListState::default();
-    list_state.select(Some(cursor.min(items.len().saturating_sub(1))));
-    frame.render_stateful_widget(
-        List::new(items)
-            .highlight_symbol("> ")
-            .highlight_style(Style::default().add_modifier(Modifier::REVERSED)),
-        inner,
-        &mut list_state,
-    );
+    highlighted_list(frame, items, cursor, inner);
 }
