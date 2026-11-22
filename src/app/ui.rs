@@ -316,7 +316,11 @@ fn predicate_spans(predicate: &Predicate, base: Style) -> Vec<Span<'static>> {
     for piece in pieces {
         match piece {
             Piece::Field(field) => spans.push(Span::styled(field.to_string(), base.fg(Color::Gray))),
-            Piece::Op { token, style, with_pattern } => {
+            Piece::Op {
+                token,
+                style,
+                with_pattern,
+            } => {
                 let text = if with_pattern {
                     format!(" {token} ")
                 } else {
@@ -903,12 +907,8 @@ fn draw_repo_prompt(frame: &mut Frame, state: &AppState, area: Rect) {
         height: 7.min(area.height),
     };
     frame.render_widget(Clear, popup);
-    let inner = popup_block(
-        frame,
-        popup,
-        Line::from(" update: repository "),
-        Some(Line::from(" Enter applies, Esc cancels ")),
-    );
+    let inner =
+        popup_block(frame, popup, Line::from(" update: repository "), Some(Line::from(" Enter applies, Esc cancels ")));
     let message = Paragraph::new(prompt.message.clone()).wrap(ratatui::widgets::Wrap { trim: true });
     frame.render_widget(message, inner);
     let editor_rect = Rect {

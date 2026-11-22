@@ -137,8 +137,7 @@ impl AppState {
     /// Applies the focused menu action to the focused field.
     pub fn detail_apply_menu(&mut self) {
         let menu = self.overlays.detail.as_ref().and_then(|detail| detail.menu);
-        let Some(action) = menu.and_then(|menu| MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1)))
-        else {
+        let Some(action) = menu.and_then(|menu| MenuAction::iter().nth(menu.min(MenuAction::COUNT - 1))) else {
             return;
         };
         let Some((path, value)) = self.detail_field_target() else {
